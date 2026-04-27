@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+psycopg2-binary
+aiosqlite
+pydantic
+python-multipart
+ifcopenshell
+celery
+redis
+minio
