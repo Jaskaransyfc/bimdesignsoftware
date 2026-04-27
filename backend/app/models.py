@@ -19,6 +19,7 @@ class Project(Base):
     status = Column(Enum(ProjectStatus), default=ProjectStatus.UPLOADED)
     original_file = Column(String, nullable=False)  # path in MinIO/Local
     xkt_file = Column(String, nullable=True)         # path to converted glB/XKT
+    hierarchy = Column(JSON, nullable=True)        # IFC Spatial Structure
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

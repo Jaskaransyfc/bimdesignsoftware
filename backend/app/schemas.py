@@ -13,6 +13,7 @@ class ProjectOut(BaseModel):
     status: ProjectStatus
     original_file: str
     xkt_file: Optional[str] = None
+    hierarchy: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     class Config:
