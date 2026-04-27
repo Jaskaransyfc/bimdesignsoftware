@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Enum, Text, JSON
+from sqlalchemy import Column, String, DateTime, Enum, Text, JSON, Float, ForeignKey
 from sqlalchemy.sql import func
 import uuid
 from .database import Base
@@ -10,6 +10,13 @@ class ProjectStatus(str, enum.Enum):
     READY = "ready"
     ERROR = "error"
 
+class User(Base):
+    __tablename__ = "users"
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = Column(String, unique=True, index=True, nullable=False)
+    password = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -20,6 +27,12 @@ class Project(Base):
     original_file = Column(String, nullable=False)  # path in MinIO/Local
     xkt_file = Column(String, nullable=True)         # path to converted glB/XKT
     hierarchy = Column(JSON, nullable=True)        # IFC Spatial Structure
+
+    # Module 1 – Project Metadata
+    client_name = Column(String, nullable=True)
+    location = Column(String, nullable=True)
+    team_members = Column(JSON, nullable=True)     # list of {"name": "...", "email": "..."}
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -32,3 +45,14 @@ class Element(Base):
     ifc_type = Column(String, nullable=False)
     name = Column(String, nullable=True)
     properties = Column(JSON, nullable=True)   # full property set as JSON
+
+class BOQItem(Base):
+    __tablename__ = "boq_items"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
+    ifc_type = Column(String, nullable=False)
+    element_name = Column(String, nullable=True)
+    quantity_name = Column(String, nullable=False)
+    quantity_value = Column(Float, nullable=False)
+    unit = Column(String, nullable=True)

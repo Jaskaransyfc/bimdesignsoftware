@@ -1,7 +1,7 @@
 import pathlib, tempfile, os, ifcopenshell, subprocess, json, shutil, traceback
 from uuid import UUID
 from .database import SessionLocalSync
-from .models import Project, ProjectStatus, Element
+from .models import Project, ProjectStatus, Element, BOQItem
 from .storage import get_file_content, upload_file
 
 def process_ifc(project_id: str):
@@ -51,7 +51,7 @@ def process_ifc(project_id: str):
         print(f"DEBUG: [Project {project_id}] Opening IFC for metadata extraction...")
         model = ifcopenshell.open(input_path)
         
-        # 4a. Elements
+        # 4a. Elements & Properties
         elements = model.by_type("IfcElement")
         print(f"DEBUG: [Project {project_id}] Found {len(elements)} elements.")
         
@@ -80,7 +80,45 @@ def process_ifc(project_id: str):
                 print(f"WARNING: [Project {project_id}] Failed to process element {el.GlobalId}: {el_err}")
                 continue
 
-        # 4b. Hierarchy (Foolproof Relationship Mapping)
+        # 4b. BOQ Extraction (Bill of Quantities)
+        print(f"DEBUG: [Project {project_id}] Extracting BOQ data...")
+        boq_count = 0
+        for el in elements:
+            try:
+                for qto_def in getattr(el, "IsDefinedBy", []):
+                    if qto_def.is_a("IfcRelDefinesByProperties"):
+                        qto = qto_def.RelatingPropertyDefinition
+                        if qto.is_a("IfcElementQuantity"):
+                            for qty in qto.Quantities:
+                                val = None
+                                unit = None
+                                if qty.is_a("IfcQuantityLength"):
+                                    val = qty.LengthValue; unit = "m"
+                                elif qty.is_a("IfcQuantityArea"):
+                                    val = qty.AreaValue; unit = "m²"
+                                elif qty.is_a("IfcQuantityVolume"):
+                                    val = qty.VolumeValue; unit = "m³"
+                                elif qty.is_a("IfcQuantityCount"):
+                                    val = qty.CountValue; unit = "pcs"
+                                elif qty.is_a("IfcQuantityWeight"):
+                                    val = qty.WeightValue; unit = "kg"
+                                if val is not None:
+                                    db.add(BOQItem(
+                                        project_id=project.id,
+                                        ifc_type=el.is_a(),
+                                        element_name=el.Name,
+                                        quantity_name=qty.Name,
+                                        quantity_value=float(val),
+                                        unit=unit
+                                    ))
+                                    boq_count += 1
+            except Exception as boq_err:
+                print(f"WARNING: [Project {project_id}] BOQ extraction error for {el.GlobalId}: {boq_err}")
+                continue
+
+        print(f"DEBUG: [Project {project_id}] Extracted {boq_count} BOQ items.")
+
+        # 4c. Hierarchy (Foolproof Relationship Mapping)
         print(f"DEBUG: [Project {project_id}] Mapping relationships...")
         children_map = {}
 

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .api import projects, elements
+from .api import projects, elements, auth
 from .database import engine, Base
 from .config import STORAGE_MODE, LOCAL_STORAGE_PATH
 import os
@@ -34,3 +34,4 @@ async def startup():
 
 app.include_router(projects.router)
 app.include_router(elements.router)
+app.include_router(auth.router)
