@@ -1,30 +1,40 @@
+# backend/app/api/projects.py
+
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ..database import get_db
 from ..models import Project, ProjectStatus, BOQItem
 from ..schemas import ProjectCreate, ProjectOut, BOQSummaryItem, ProjectUpdate
-from ..tasks import process_ifc
+from ..tasks import process_upload          # <-- new worker
 from ..storage import upload_file, ensure_storage, get_file_url
 from uuid import uuid4
-import os, json
+import json
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+ALLOWED_EXTENSIONS = {"ifc", "glb", "gltf", "obj", "fbx", "dae", "stp", "step", "xyz", "e57", "blend"}
+
 
 @router.post("/", response_model=ProjectOut)
 async def create_project(
     background_tasks: BackgroundTasks,
     name: str = Form(...),
+    file: UploadFile = File(...),
     client_name: str = Form(None),
     location: str = Form(None),
-    team_members: str = Form(None),   # JSON string from frontend
-    file: UploadFile = File(...),
+    team_members: str = Form(None),   # JSON string
     db: AsyncSession = Depends(get_db)
 ):
-    if not file.filename.endswith('.ifc'):
-        raise HTTPException(status_code=400, detail="Only .ifc files allowed")
+    # ---- file extension validation ----
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format: .{ext}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+        )
 
-    # Parse team_members JSON string
+    # ---- parse team members ----
     team = None
     if team_members:
         try:
@@ -35,11 +45,12 @@ async def create_project(
     project_id = str(uuid4())
     file_path = f"raw/{project_id}/{file.filename}"
 
-    # Upload to Storage
+    # ---- upload raw file ----
     ensure_storage()
     contents = await file.read()
     upload_file(file_path, contents)
 
+    # ---- create database record ----
     project = Project(
         id=project_id,
         name=name,
@@ -53,17 +64,17 @@ async def create_project(
     await db.commit()
     await db.refresh(project)
 
-    # In local mode, we use FastAPI BackgroundTasks instead of Celery 
-    # if the user doesn't have Redis installed.
-    # We call the function directly (it's a sync function, so BackgroundTasks handles it in a thread).
-    background_tasks.add_task(process_ifc, str(project_id))
+    # ---- trigger background processing (IFC or other format) ----
+    background_tasks.add_task(process_upload, str(project_id), ext)
 
     return project
+
 
 @router.get("/", response_model=list[ProjectOut])
 async def list_projects(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Project).order_by(Project.created_at.desc()))
     return result.scalars().all()
+
 
 @router.get("/{project_id}", response_model=ProjectOut)
 async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
@@ -72,12 +83,13 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404)
     return project
 
+
 @router.put("/{project_id}", response_model=ProjectOut)
 async def update_project(project_id: str, payload: ProjectUpdate, db: AsyncSession = Depends(get_db)):
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404)
-    
+
     if payload.name is not None:
         project.name = payload.name
     if payload.client_name is not None:
@@ -86,28 +98,39 @@ async def update_project(project_id: str, payload: ProjectUpdate, db: AsyncSessi
         project.location = payload.location
     if payload.team_members is not None:
         project.team_members = payload.team_members
-        
+
     await db.commit()
     await db.refresh(project)
     return project
 
-@router.get("/{project_id}/xkt-url")
-async def get_xkt_url(project_id: str, db: AsyncSession = Depends(get_db)):
+
+# ── viewer-file URL (works for XKT and GLB) ─────────────────
+@router.get("/{project_id}/viewer-url")
+async def get_viewer_url(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the URL of the file the viewer should load (XKT or GLB)."""
     project = await db.get(Project, project_id)
-    if not project or not project.xkt_file:
-        raise HTTPException(status_code=404)
-    
-    url = get_file_url(project.xkt_file)
+    if not project or not project.viewer_file:
+        raise HTTPException(status_code=404, detail="Viewer file not ready")
+    url = get_file_url(project.viewer_file)
     return {"url": url}
 
+
+# ── hierarchy (from JSON field) ─────────────────────────────
+@router.get("/{project_id}/hierarchy")
+async def get_hierarchy(project_id: str, db: AsyncSession = Depends(get_db)):
+    project = await db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404)
+    return project.hierarchy
+
+
+# ── BOQ summary ─────────────────────────────────────────────
 @router.get("/{project_id}/boq-summary", response_model=list[BOQSummaryItem])
 async def boq_summary(project_id: str, db: AsyncSession = Depends(get_db)):
-    """Return grouped Bill of Quantities summary for a project."""
     query = select(BOQItem).where(BOQItem.project_id == project_id)
     result = await db.execute(query)
     items = result.scalars().all()
 
-    # Group by ifc_type + quantity_name + unit, sum values
     grouped: dict = {}
     for item in items:
         key = f"{item.ifc_type}|{item.quantity_name}|{item.unit}"
@@ -121,3 +144,14 @@ async def boq_summary(project_id: str, db: AsyncSession = Depends(get_db)):
         grouped[key]["total"] += item.quantity_value
 
     return list(grouped.values())
+
+
+# ── original file URL ───────────────────────────────────────────
+@router.get("/{project_id}/original-url")
+async def get_original_url(project_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the URL of the original file (e.g. the .ifc file)."""
+    project = await db.get(Project, project_id)
+    if not project or not project.original_file:
+        raise HTTPException(status_code=404, detail="Original file not found")
+    url = get_file_url(project.original_file)
+    return {"url": url}

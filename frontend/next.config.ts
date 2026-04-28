@@ -17,8 +17,12 @@ const nextConfig: NextConfig = {
         ...config.resolve.fallback,
         fs: false,
         path: false,
+        perf_hooks: false,
       };
     }
+    // Handle "Critical dependency" warning from web-ifc
+    config.module.exprContextCritical = false;
+    
     return config;
   },
 };

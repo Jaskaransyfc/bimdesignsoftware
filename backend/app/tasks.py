@@ -1,189 +1,271 @@
-import pathlib, tempfile, os, ifcopenshell, subprocess, json, shutil, traceback
-from uuid import UUID
+# backend/app/tasks.py
+
+import os
+import json
+import shutil
+import tempfile
+import traceback
+import subprocess
+
+import ifcopenshell
+import ifcopenshell.validate
+
 from .database import SessionLocalSync
 from .models import Project, ProjectStatus, Element, BOQItem
 from .storage import get_file_content, upload_file
 
-def process_ifc(project_id: str):
-    print(f"DEBUG: [Project {project_id}] Starting background processing...")
+ALLOWED_EXTENSIONS = {"ifc", "glb", "gltf", "obj", "fbx", "dae", "stp", "step", "xyz", "e57", "blend"}
+
+
+def process_upload(project_id: str, extension: str):
+    print(f"DEBUG: [Project {project_id}] Starting Module 3 processing... (extension: {extension})")
     db = SessionLocalSync()
     project = None
+    tmp_dir = None
 
     try:
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
-            print(f"ERROR: [Project {project_id}] Project not found in database.")
+            print(f"ERROR: [Project {project_id}] Not found.")
             return
-            
+
         project.status = ProjectStatus.PROCESSING
         db.commit()
 
-        # 1. Download & Save Temporary File
-        ifc_data = get_file_content(project.original_file)
+        raw_data = get_file_content(project.original_file)
         tmp_dir = tempfile.mkdtemp()
-        input_path = os.path.join(tmp_dir, "model.ifc")
+        input_path = os.path.join(tmp_dir, f"input.{extension}")
         with open(input_path, "wb") as f:
-            f.write(ifc_data)
+            f.write(raw_data)
 
-        # 2. Convert to GLB
-        output_glb = os.path.join(tmp_dir, "model.glb")
-        print(f"DEBUG: [Project {project_id}] Running IfcConvert...")
-        
-        try:
-            subprocess.run([
-                "IfcConvert", input_path, output_glb, 
-                "--use-element-guids",
-                "--separate-z-up-node"
-            ], check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as e:
-            print(f"ERROR: [Project {project_id}] IfcConvert failed: {e.stderr}")
-            raise Exception(f"IfcConvert failed: {e.stderr}")
+        # ── IFC processing ─────────────────────────────
+        if extension == "ifc":
+            # 1. Validation
+            validation = validate_ifc_file(input_path)
+            if not validation.get("valid") and not os.environ.get("SKIP_IFC_VALIDATION"):
+                project.status = ProjectStatus.ERROR
+                project.error_message = json.dumps(validation)
+                db.commit()
+                print(f"ERROR: IFC validation failed for {project_id}")
+                return
 
-        # 3. Upload Result
-        glb_key = f"glb/{project_id}/model.glb"
-        with open(output_glb, "rb") as f:
-            upload_file(glb_key, f.read())
-
-        project.xkt_file = glb_key
-        print(f"DEBUG: [Project {project_id}] 3D Geometry uploaded.")
-
-        # 4. Extract Metadata & Hierarchy
-        print(f"DEBUG: [Project {project_id}] Opening IFC for metadata extraction...")
-        model = ifcopenshell.open(input_path)
-        
-        # 4a. Elements & Properties
-        elements = model.by_type("IfcElement")
-        print(f"DEBUG: [Project {project_id}] Found {len(elements)} elements.")
-        
-        for el in elements:
-            try:
-                props = {}
-                for rel in getattr(el, "IsDefinedBy", []):
-                    if rel.is_a("IfcRelDefinesByProperties"):
-                        pset = rel.RelatingPropertyDefinition
-                        if pset.is_a("IfcPropertySet"):
-                            for prop in getattr(pset, "HasProperties", []):
-                                if prop.is_a("IfcPropertySingleValue"):
-                                    try:
-                                        val = prop.NominalValue.wrappedValue if prop.NominalValue else None
-                                        props[str(prop.Name)] = str(val) if val is not None else ""
-                                    except: continue
-
-                db.add(Element(
-                    project_id=project.id,
-                    global_id=el.GlobalId,
-                    ifc_type=el.is_a(),
-                    name=el.Name or "Unnamed",
-                    properties=props
-                ))
-            except Exception as el_err:
-                print(f"WARNING: [Project {project_id}] Failed to process element {el.GlobalId}: {el_err}")
-                continue
-
-        # 4b. BOQ Extraction (Bill of Quantities)
-        print(f"DEBUG: [Project {project_id}] Extracting BOQ data...")
-        boq_count = 0
-        for el in elements:
-            try:
-                for qto_def in getattr(el, "IsDefinedBy", []):
-                    if qto_def.is_a("IfcRelDefinesByProperties"):
-                        qto = qto_def.RelatingPropertyDefinition
-                        if qto.is_a("IfcElementQuantity"):
-                            for qty in qto.Quantities:
-                                val = None
-                                unit = None
-                                if qty.is_a("IfcQuantityLength"):
-                                    val = qty.LengthValue; unit = "m"
-                                elif qty.is_a("IfcQuantityArea"):
-                                    val = qty.AreaValue; unit = "m²"
-                                elif qty.is_a("IfcQuantityVolume"):
-                                    val = qty.VolumeValue; unit = "m³"
-                                elif qty.is_a("IfcQuantityCount"):
-                                    val = qty.CountValue; unit = "pcs"
-                                elif qty.is_a("IfcQuantityWeight"):
-                                    val = qty.WeightValue; unit = "kg"
-                                if val is not None:
-                                    db.add(BOQItem(
-                                        project_id=project.id,
-                                        ifc_type=el.is_a(),
-                                        element_name=el.Name,
-                                        quantity_name=qty.Name,
-                                        quantity_value=float(val),
-                                        unit=unit
-                                    ))
-                                    boq_count += 1
-            except Exception as boq_err:
-                print(f"WARNING: [Project {project_id}] BOQ extraction error for {el.GlobalId}: {boq_err}")
-                continue
-
-        print(f"DEBUG: [Project {project_id}] Extracted {boq_count} BOQ items.")
-
-        # 4c. Hierarchy (Foolproof Relationship Mapping)
-        print(f"DEBUG: [Project {project_id}] Mapping relationships...")
-        children_map = {}
-
-        # 1. Spatial Decomposition (Project -> Site -> Building -> Storey)
-        for rel in model.by_type("IfcRelAggregates"):
-            parent = getattr(rel, "RelatingObject", None)
-            children = getattr(rel, "RelatedObjects", [])
-            if parent and children:
-                if parent.GlobalId not in children_map:
-                    children_map[parent.GlobalId] = []
-                for child in children:
-                    children_map[parent.GlobalId].append(child)
-
-        # 2. Element Containment (Storey -> Walls, Windows, etc.)
-        for rel in model.by_type("IfcRelContainedInSpatialStructure"):
-            parent = getattr(rel, "RelatingStructure", None)
-            children = getattr(rel, "RelatedElements", [])
-            if parent and children:
-                if parent.GlobalId not in children_map:
-                    children_map[parent.GlobalId] = []
-                for child in children:
-                    children_map[parent.GlobalId].append(child)
-
-        def build_tree(element, depth=0):
-            if depth > 20: return None # Safety limit
+            # 2. Extract elements & BOQ
+            model = ifcopenshell.open(input_path)
+            extract_elements_and_boq(db, project_id, model)
             
-            node = {
-                "id": element.GlobalId,
-                "name": element.Name or element.is_a(),
-                "type": element.is_a(),
+            # 3. Extract Hierarchy (Module 3 version)
+            project.hierarchy = extract_hierarchy_dict(model)
+
+            # 4. Conversion (Unified to GLB for browser-ready view)
+            output_glb = os.path.join(tmp_dir, "model.glb")
+            run_ifc_convert(input_path, output_glb)
+
+            viewer_key = f"glb/{project_id}/model.glb"
+            with open(output_glb, "rb") as f:
+                upload_file(viewer_key, f.read())
+            
+            project.viewer_file = viewer_key
+            project.xkt_file = viewer_key # Keep for compatibility
+
+        # ── GLB / GLTF (ready to view) ─────────────────
+        elif extension in ("glb", "gltf"):
+            viewer_key = f"viewable/{project_id}/original.{extension}"
+            upload_file(viewer_key, raw_data)
+            project.viewer_file = viewer_key
+            project.xkt_file = viewer_key  # Fix: Ensure xkt_file is set for viewer compatibility
+            
+            # Simple hierarchy for non-IFC
+            project.hierarchy = {
+                "id": "root",
+                "name": project.name,
+                "type": "Project",
                 "children": []
             }
-            
-            for child in children_map.get(element.GlobalId, []):
-                child_node = build_tree(child, depth + 1)
-                if child_node:
-                    node["children"].append(child_node)
-                    
-            return node
 
-        # Smart Root Search
-        root_element = None
-        for root_type in ["IfcProject", "IfcSite", "IfcBuilding"]:
-            potential_roots = model.by_type(root_type)
-            if potential_roots:
-                root_element = potential_roots[0]
-                break
-
-        if root_element:
-            print(f"DEBUG: [Project {project_id}] Building spatial tree from {root_element.is_a()}...")
-            project.hierarchy = build_tree(root_element)
+        # ── All other formats (OBJ, STL, FBX, DXF, BLEND, etc.) ─────
         else:
-            print(f"WARNING: [Project {project_id}] No spatial root found!")
+            output_glb = os.path.join(tmp_dir, "converted.glb")
+            try:
+                # Special handling for .blend if needed, else assimp
+                if extension == "blend" and _is_blender_available():
+                    _convert_blend_with_blender(input_path, output_glb)
+                else:
+                    convert_to_glb(input_path, output_glb, extension)
+                
+                viewer_key = f"glb/{project_id}/converted.glb"
+                with open(output_glb, "rb") as f:
+                    upload_file(viewer_key, f.read())
+                project.viewer_file = viewer_key
+                project.xkt_file = viewer_key  # Fix: Ensure xkt_file is set for viewer compatibility
+                
+                project.hierarchy = {
+                    "id": "root",
+                    "name": project.name,
+                    "type": "Project",
+                    "children": []
+                }
+            except Exception as e:
+                raise Exception(f"Conversion failed for {extension}: {str(e)}")
 
         project.status = ProjectStatus.READY
         db.commit()
-        print(f"DEBUG: [Project {project_id}] Processing complete.")
+        print(f"INFO: [Project {project_id}] Module 3 processing complete.")
 
     except Exception as e:
         print(f"CRITICAL ERROR: [Project {project_id}] {e}")
-        print(traceback.format_exc())
+        traceback.print_exc()
         if project:
             db.rollback()
             project.status = ProjectStatus.ERROR
+            project.error_message = f"{type(e).__name__}: {str(e)}"
             db.commit()
     finally:
         db.close()
-        if 'tmp_dir' in locals(): shutil.rmtree(tmp_dir, ignore_errors=True)
+        if tmp_dir and os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def extract_hierarchy_dict(model) -> dict:
+    """Module 3 version: Extracts full BIM hierarchy site -> building -> storey -> element."""
+    projects = model.by_type("IfcProject")
+    if not projects:
+        return {"id": "root", "name": "No Project Found", "type": "Project", "children": []}
+    
+    return recursive_decompose(projects[0])
+
+
+def recursive_decompose(obj):
+    node = {
+        "id": obj.GlobalId,
+        "name": getattr(obj, "Name", None) or obj.is_a(),
+        "type": obj.is_a(),
+        "children": []
+    }
+    
+    # Aggregates (Project -> Site -> Building -> Storey)
+    if hasattr(obj, "IsDecomposedBy"):
+        for rel in obj.IsDecomposedBy:
+            if rel.is_a("IfcRelAggregates"):
+                for child in rel.RelatedObjects:
+                    node["children"].append(recursive_decompose(child))
+                    
+    # Contained elements (Storey -> Elements)
+    if hasattr(obj, "ContainsElements"):
+        for rel in obj.ContainsElements:
+            for elem in rel.RelatedElements:
+                node["children"].append({
+                    "id": elem.GlobalId,
+                    "name": getattr(elem, "Name", None) or elem.is_a(),
+                    "type": elem.is_a(),
+                    "children": []
+                })
+    return node
+
+
+# ──────────────── Conversion Helpers ────────────────
+
+def validate_ifc_file(file_path: str) -> dict:
+    import logging
+    try:
+        model = ifcopenshell.open(file_path)
+        if not model.by_type("IfcProject"):
+            return {"valid": False, "error": "No IfcProject found"}
+        
+        # Check for at least one element to ensure it's not a dummy file
+        if not model.by_type("IfcElement") and not model.by_type("IfcProduct"):
+             return {"valid": False, "error": "Model contains no 3D elements"}
+
+        # Quick schema validation
+        logger = logging.getLogger("ifc_validate")
+        issues = ifcopenshell.validate.validate(file_path, logger)
+        if issues is None:
+            issues = []
+        return {"valid": len(issues) < 50, "issues": [str(i) for i in issues[:20]]} # Allow some minor issues
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
+
+
+def run_ifc_convert(input_ifc: str, output_glb: str):
+    """Uses IfcConvert to create a browser-ready GLB with GUIDs preserved."""
+    subprocess.run([
+        "IfcConvert", input_ifc, output_glb, 
+        "--use-element-guids", 
+        "--separate-z-up-node"
+    ], check=True, capture_output=True, text=True, timeout=600)
+
+
+def convert_to_glb(input_path: str, output_path: str, original_ext: str):
+    """Universal fallback using assimp."""
+    subprocess.run(
+        ["assimp", "export", input_path, output_path, "--format", "glb2"],
+        check=True, timeout=300
+    )
+
+
+def _is_blender_available() -> bool:
+    try:
+        subprocess.run(["blender", "--version"], capture_output=True, check=True, timeout=10)
+        return True
+    except:
+        return False
+
+
+def _convert_blend_with_blender(input_blend: str, output_glb: str):
+    script = f"import bpy; bpy.ops.wm.open_mainfile(filepath='{input_blend}'); bpy.ops.export_scene.gltf(filepath='{output_glb}', export_format='GLB')"
+    subprocess.run(["blender", "--background", "--python-expr", script], check=True, timeout=300)
+
+
+def extract_elements_and_boq(db, project_id, model):
+    """Extracts all IfcElements and their PSet properties."""
+    # Delete previous if reprocessing
+    db.query(Element).filter(Element.project_id == project_id).delete()
+    db.query(BOQItem).filter(BOQItem.project_id == project_id).delete()
+    
+    elements = model.by_type("IfcElement")
+    for el in elements:
+        try:
+            props = {}
+            for rel in getattr(el, "IsDefinedBy", []):
+                if rel.is_a("IfcRelDefinesByProperties"):
+                    pset = rel.RelatingPropertyDefinition
+                    if pset.is_a("IfcPropertySet"):
+                        for prop in getattr(pset, "HasProperties", []):
+                            if prop.is_a("IfcPropertySingleValue"):
+                                val = prop.NominalValue.wrappedValue if prop.NominalValue else None
+                                props[str(prop.Name)] = str(val) if val is not None else ""
+            
+            db.add(Element(
+                project_id=project_id, 
+                global_id=el.GlobalId, 
+                ifc_type=el.is_a(), 
+                name=el.Name or "Unnamed", 
+                properties=props
+            ))
+        except: continue
+
+    # BOQ Extraction (Quantities)
+    for el in elements:
+        try:
+            for qto_def in getattr(el, "IsDefinedBy", []):
+                if qto_def.is_a("IfcRelDefinesByProperties"):
+                    qto = qto_def.RelatingPropertyDefinition
+                    if qto.is_a("IfcElementQuantity"):
+                        for qty in qto.Quantities:
+                            val = None
+                            unit = ""
+                            if qty.is_a("IfcQuantityLength"): val = qty.LengthValue; unit = "m"
+                            elif qty.is_a("IfcQuantityArea"): val = qty.AreaValue; unit = "m²"
+                            elif qty.is_a("IfcQuantityVolume"): val = qty.VolumeValue; unit = "m³"
+                            elif qty.is_a("IfcQuantityCount"): val = qty.CountValue; unit = "pcs"
+                            
+                            if val is not None:
+                                db.add(BOQItem(
+                                    project_id=project_id, 
+                                    ifc_type=el.is_a(), 
+                                    element_name=el.Name, 
+                                    quantity_name=qty.Name, 
+                                    quantity_value=float(val), 
+                                    unit=unit
+                                ))
+        except: continue
+    db.commit()

@@ -33,6 +33,9 @@ class Project(Base):
     location = Column(String, nullable=True)
     team_members = Column(JSON, nullable=True)     # list of {"name": "...", "email": "..."}
 
+    viewer_file = Column(String, nullable=True)    
+    error_message = Column(Text, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

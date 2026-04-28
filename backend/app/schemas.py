@@ -40,6 +40,8 @@ class ProjectOut(BaseModel):
     original_file: str
     xkt_file: Optional[str] = None
     hierarchy: Optional[Dict[str, Any]] = None
+    viewer_file: Optional[str] = None        
+    error_message: Optional[str] = None 
     client_name: Optional[str] = None
     location: Optional[str] = None
     team_members: Optional[Any] = None

@@ -21,7 +21,7 @@ import {
 // ─────────────────────────────────────────
 function Ribbon() {
   const { activeRibbonTab, setActiveRibbonTab, toggleLeftPanel, toggleRightPanel, toggleBottomPanel, leftPanelOpen, rightPanelOpen, bottomPanelOpen } = useViewerStore();
-  const tabs = ['Home', 'View', 'Analyze', 'Help'];
+  const tabs = ['Home', 'View', 'Analyze'];
 
   const handleTabClick = (tab: string) => {
     setActiveRibbonTab(tab);
@@ -501,9 +501,10 @@ export default function ViewerPage() {
         } catch (e) { console.warn('Could not fetch BOQ', e); }
 
         // Load 3D model
-        if (data.status === 'ready' && data.xkt_file) {
+        const viewerFile = data.viewer_file || data.xkt_file;
+        if (data.status === 'ready' && viewerFile) {
           const loader = new GLTFLoaderPlugin(viewer);
-          const url = `${apiUrl}/api/storage/${data.xkt_file}`;
+          const url = `${apiUrl}/api/storage/${viewerFile}`;
           const model = loader.load({ id: 'main-model', src: url, edges: true });
           model.on('loaded', () => {
             if (active && viewer) {

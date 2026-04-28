@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Trash2, UploadCloud, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Plus, Trash2, UploadCloud, ArrowLeft, CheckCircle2, FileWarning } from 'lucide-react';
 
 interface TeamMember {
   name: string;
@@ -23,7 +23,7 @@ export default function UploadPage() {
 
   const [currentUserEmail, setCurrentUserEmail] = useState('');
   const [currentUserName, setCurrentUserName] = useState('');
-  
+
   useEffect(() => {
     const savedEmail = localStorage.getItem('userEmail');
     if (!savedEmail) {
@@ -43,7 +43,21 @@ export default function UploadPage() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files?.[0]) setFile(e.dataTransfer.files[0]);
+    const droppedFile = e.dataTransfer.files?.[0];
+    if (droppedFile && isSupportedFormat(droppedFile.name)) {
+      setFile(droppedFile);
+    } else {
+      alert("Unsupported file format. Please use: IFC, GLB, GLTF, OBJ, FBX, DAE, STP, STEP, XYZ, E57");
+    }
+  };
+
+  const acceptFormats = ".ifc,.glb,.gltf,.obj,.fbx,.dae,.stp,.step,.xyz,.e57,.blend";
+
+  const isSupportedFormat = (filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    if (!ext) return false;
+    const allowed = ['ifc', 'glb', 'gltf', 'obj', 'fbx', 'dae', 'stp', 'step', 'xyz', 'e57', 'blend'];
+    return allowed.includes(ext);
   };
 
   const addTeamMember = () => setTeam([...team, { name: '', email: '' }]);
@@ -58,6 +72,11 @@ export default function UploadPage() {
     e.preventDefault();
     if (!file || !name) return;
 
+    if (!isSupportedFormat(file.name)) {
+      alert("Unsupported file format. Please use: IFC, GLB, GLTF, OBJ, FBX, DAE, STP, STEP, XYZ, E57");
+      return;
+    }
+
     setUploading(true);
     setStatusMessage('Uploading model…');
 
@@ -67,14 +86,10 @@ export default function UploadPage() {
     if (client) formData.append('client_name', client);
     if (location) formData.append('location', location);
 
-    // Filter out empty team members before sending
     const validTeam = team.filter(m => m.name || m.email);
-
-    // If the creator isn't in the team list, make sure they are added so they can see their own project!
     if (!validTeam.some(m => m.email === currentUserEmail)) {
       validTeam.unshift({ name: currentUserName || 'Project Owner', email: currentUserEmail });
     }
-
     if (validTeam.length > 0) {
       formData.append('team_members', JSON.stringify(validTeam));
     }
@@ -105,27 +120,21 @@ export default function UploadPage() {
   return (
     <main className="min-h-screen bg-[#0d0e1a] text-white p-6 md:p-8 flex items-center justify-center">
       <div className="w-full max-w-3xl">
-
-        {/* Back link */}
         <Link href="/" className="inline-flex items-center gap-2 text-white/40 hover:text-white transition-colors mb-8 text-sm font-medium group">
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
           Back to Dashboard
         </Link>
 
-        {/* Card */}
         <div className="bg-[#121422] border border-white/5 rounded-3xl p-8 md:p-12 shadow-2xl shadow-black/40">
-
-          {/* Header */}
           <div className="mb-10">
             <h1 className="text-3xl font-extrabold tracking-tight mb-2 bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-              New IFC Project
+              New Project
             </h1>
-            <p className="text-white/35 text-sm">Fill in the project details and upload your building model.</p>
+            <p className="text-white/35 text-sm">Upload any supported 3D model. IFC files will extract BIM data.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-8">
-
-            {/* Row 1: Project Name + Client */}
+            {/* Project Name + Client */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 block">Project Name *</label>
@@ -147,7 +156,7 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {/* Row 2: Location */}
+            {/* Location */}
             <div>
               <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 block">Location</label>
               <input
@@ -158,7 +167,7 @@ export default function UploadPage() {
               />
             </div>
 
-            {/* Row 3: Team Members */}
+            {/* Team Members */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Team Members</label>
@@ -194,32 +203,41 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {/* Row 4: IFC File Drop */}
+            {/* File Drop */}
             <div>
-              <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 block">IFC File *</label>
+              <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 block">3D Model *</label>
               <div
                 onDragEnter={handleDrag} onDragOver={handleDrag} onDragLeave={handleDrag} onDrop={handleDrop}
-                className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer ${
-                  dragActive ? 'border-blue-500 bg-blue-500/10 scale-[1.01]' :
+                className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer ${dragActive ? 'border-blue-500 bg-blue-500/10 scale-[1.01]' :
                   file ? 'border-emerald-500/50 bg-emerald-500/5' :
-                  'border-white/10 bg-white/[0.03] hover:border-white/20'
-                }`}
+                    'border-white/10 bg-white/[0.03] hover:border-white/20'
+                  }`}
               >
                 <input
-                  id="ifc-file-input"
-                  type="file" accept=".ifc"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  id="model-file-input"
+                  type="file" accept={acceptFormats}
+                  onChange={(e) => {
+                    const selected = e.target.files?.[0];
+                    if (selected && !isSupportedFormat(selected.name)) {
+                      alert("Unsupported file format.");
+                      e.target.value = '';
+                      return;
+                    }
+                    setFile(selected || null);
+                  }}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
                 <div className="flex flex-col items-center gap-3">
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-colors ${
-                    file ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-white/20'
-                  }`}>
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-colors ${file ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-white/20'
+                    }`}>
                     {file ? <CheckCircle2 className="w-7 h-7" /> : <UploadCloud className="w-7 h-7" />}
                   </div>
                   <div>
                     <p className="font-medium text-sm">
-                      {file ? file.name : 'Drag and drop .ifc file or click to browse'}
+                      {file ? file.name : 'Drag & drop or click to browse (.ifc, .glb, .obj, .fbx, ...)'}
+                    </p>
+                    <p className="text-white/25 text-xs mt-2">
+                      Supported: IFC, GLB, GLTF, OBJ, FBX, DAE, STP, STEP, XYZ, E57
                     </p>
                     {fileSizeMB && (
                       <p className="text-white/30 text-xs mt-1">{fileSizeMB} MB</p>
@@ -229,7 +247,7 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {/* Status message */}
+            {/* Status */}
             <div className="text-center h-5">
               {statusMessage && (
                 <p className="text-xs text-blue-400 font-bold uppercase tracking-wider animate-pulse">

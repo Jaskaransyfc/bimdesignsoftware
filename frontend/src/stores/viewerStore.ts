@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
 export interface SelectedElement {
   global_id: string;
@@ -32,21 +32,25 @@ interface ViewerState {
   toggleBottomPanel: () => void;
 
   // Bottom panel tab
-  bottomTab: 'boq' | 'issues' | 'clash';
-  setBottomTab: (tab: 'boq' | 'issues' | 'clash') => void;
+  bottomTab: "boq" | "issues" | "clash";
+  setBottomTab: (tab: "boq" | "issues" | "clash") => void;
 
   // BOQ data
   boqItems: BOQItem[];
   setBoqItems: (items: BOQItem[]) => void;
 
   // Tree
-  groupMode: 'spatial' | 'type';
-  setGroupMode: (mode: 'spatial' | 'type') => void;
+  groupMode: "spatial" | "type";
+  setGroupMode: (mode: "spatial" | "type") => void;
+
+  // Inside the store interface
+  viewMode: "3d" | "2d";
+  toggleViewMode: () => void;
 }
 
 export const useViewerStore = create<ViewerState>((set) => ({
   // Ribbon
-  activeRibbonTab: 'View',
+  activeRibbonTab: "View",
   setActiveRibbonTab: (tab) => set({ activeRibbonTab: tab }),
 
   // Selection
@@ -59,10 +63,11 @@ export const useViewerStore = create<ViewerState>((set) => ({
   bottomPanelOpen: false,
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
-  toggleBottomPanel: () => set((s) => ({ bottomPanelOpen: !s.bottomPanelOpen })),
+  toggleBottomPanel: () =>
+    set((s) => ({ bottomPanelOpen: !s.bottomPanelOpen })),
 
   // Bottom panel tab
-  bottomTab: 'boq',
+  bottomTab: "boq",
   setBottomTab: (tab) => set({ bottomTab: tab }),
 
   // BOQ
@@ -70,6 +75,12 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setBoqItems: (items) => set({ boqItems: items }),
 
   // Tree
-  groupMode: 'spatial',
+  groupMode: "spatial",
   setGroupMode: (mode) => set({ groupMode: mode }),
+
+  viewMode: "3d",
+  toggleViewMode: () =>
+    set((state) => ({
+      viewMode: state.viewMode === "3d" ? "2d" : "3d",
+    })),
 }));
