@@ -124,15 +124,156 @@ def process_upload(project_id: str, extension: str):
         if tmp_dir and os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-
 def extract_hierarchy_dict(model) -> dict:
-    """Module 3 version: Extracts full BIM hierarchy site -> building -> storey -> element."""
+    """Build a Revit‑like spatial tree: Project → Site → Building → Storey → typed elements."""
     projects = model.by_type("IfcProject")
     if not projects:
-        return {"id": "root", "name": "No Project Found", "type": "Project", "children": []}
-    
-    return recursive_decompose(projects[0])
+        return {"id": "root", "name": "No Project", "type": "Project", "children": []}
 
+    project = projects[0]
+    tree = {
+        "id": project.GlobalId,
+        "name": project.Name or "Project",
+        "type": "IfcProject",
+        "children": []
+    }
+
+    # 1. Collect sites aggregated by the project
+    sites = _get_related_objects(project, "IsDecomposedBy")
+    if not sites:
+        # If no site, put buildings directly under project
+        buildings = _get_buildings(model)
+        for building in buildings:
+            tree["children"].append(build_building_node(building))
+    else:
+        for site in sites:
+            if site.is_a("IfcSite"):
+                site_node = {
+                    "id": site.GlobalId,
+                    "name": site.Name or "Site",
+                    "type": "IfcSite",
+                    "children": []
+                }
+                # Get buildings under this site
+                buildings = _get_related_objects(site, "IsDecomposedBy")
+                for building in buildings:
+                    site_node["children"].append(build_building_node(building))
+                # Also look for buildings directly in model if not under site
+                for building in _get_buildings(model):
+                    if building not in buildings:
+                        site_node["children"].append(build_building_node(building))
+                tree["children"].append(site_node)
+
+    return tree
+
+
+def _get_related_objects(obj, attribute):
+    """Helper: return related objects via IfcRelAggregates."""
+    related = []
+    for rel in getattr(obj, attribute, []):
+        if rel.is_a("IfcRelAggregates"):
+            related.extend(rel.RelatedObjects)
+    return related
+
+
+def _get_buildings(model):
+    """Return all IfcBuilding entities in the model."""
+    return model.by_type("IfcBuilding") or []
+
+
+def build_building_node(building):
+    """Create a building node with storeys and typed elements."""
+    node = {
+        "id": building.GlobalId,
+        "name": building.Name or "Building",
+        "type": "IfcBuilding",
+        "children": []
+    }
+
+    # Find storeys related to this building
+    storeys = []
+    for rel in getattr(building, "IsDecomposedBy", []):
+        if rel.is_a("IfcRelAggregates"):
+            for obj in rel.RelatedObjects:
+                if obj.is_a("IfcBuildingStorey"):
+                    storeys.append(obj)
+
+    # If no storeys found, still include elements grouped by type directly
+    if not storeys:
+        elements = _get_contained_elements(building)
+        type_groups = _group_by_type(elements)
+        for group_name, elems in type_groups.items():
+            node["children"].append({
+                "id": f"group-{building.GlobalId}-{group_name}",
+                "name": group_name,
+                "type": "IfcGroup",
+                "children": [make_element_leaf(e) for e in elems]
+            })
+    else:
+        for storey in storeys:
+            storey_node = {
+                "id": storey.GlobalId,
+                "name": storey.Name or f"Level {storey.Elevation}" if hasattr(storey, "Elevation") else "Level",
+                "type": "IfcBuildingStorey",
+                "children": []
+            }
+            # Get contained elements (walls,etc.) via IfcRelContainedInSpatialStructure
+            elements = _get_contained_elements(storey)
+            type_groups = _group_by_type(elements)
+            for group_name, elems in type_groups.items():
+                storey_node["children"].append({
+                    "id": f"group-{storey.GlobalId}-{group_name}",
+                    "name": group_name,
+                    "type": "IfcGroup",
+                    "children": [make_element_leaf(e) for e in elems]
+                })
+            node["children"].append(storey_node)
+
+    return node
+
+
+def _get_contained_elements(spatial_element):
+    """Get all IfcElements directly contained in a spatial structure (storey/building)."""
+    contained = []
+    for rel in getattr(spatial_element, "ContainsElements", []):
+        if rel.is_a("IfcRelContainedInSpatialStructure"):
+            contained.extend(rel.RelatedElements)
+    return contained
+
+
+def _group_by_type(elements):
+    """Group elements by a friendly category name."""
+    groups = {}
+    type_map = {
+        "IfcWall": "Walls",
+        "IfcWallStandardCase": "Walls",
+        "IfcSlab": "Slabs",
+        "IfcBeam": "Beams",
+        "IfcColumn": "Columns",
+        "IfcDoor": "Doors",
+        "IfcWindow": "Windows",
+        "IfcStair": "Stairs",
+        "IfcRailing": "Railings",
+        "IfcMember": "Framing",
+        "IfcPlate": "Plates",
+        "IfcRoof": "Roofs",
+        "IfcBuildingElementProxy": "Misc"
+    }
+    for elem in elements:
+        type_name = elem.is_a()
+        friendly = type_map.get(type_name, type_name.replace("Ifc", ""))
+        groups.setdefault(friendly, []).append(elem)
+    return groups
+
+
+def make_element_leaf(element):
+    """Convert an IFC element into a leaf node for the tree."""
+    return {
+        "id": element.GlobalId,
+        "name": element.Name or "Unnamed",
+        "type": element.is_a(),
+        "children": []
+    }
 
 def recursive_decompose(obj):
     node = {
