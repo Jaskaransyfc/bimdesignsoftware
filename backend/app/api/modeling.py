@@ -27,6 +27,70 @@ async def _ensure_project_exists(project_id: str, db: AsyncSession) -> None:
         raise HTTPException(status_code=404, detail="Project not found")
 
 
+def _hydrate_parametric_columns(payload_data: dict) -> None:
+    geometry = payload_data.get("geometry") or {}
+    parameters = payload_data.get("parameters") or {}
+    payload_data["start"] = geometry.get("start") or parameters.get("start")
+    payload_data["end"] = geometry.get("end") or parameters.get("end")
+    payload_data["height"] = parameters.get("height", payload_data.get("height"))
+    payload_data["thickness"] = parameters.get("thickness", payload_data.get("thickness"))
+
+
+async def _sync_hosted_openings(project_id: str, host_wall: ModelElement, db: AsyncSession) -> None:
+    query = select(ModelElement).where(
+        ModelElement.project_id == project_id,
+        ModelElement.type.in_(["DOOR", "WINDOW", "OPENING"]),
+    )
+    result = await db.execute(query)
+    hosted = result.scalars().all()
+    for opening in hosted:
+        params = opening.parameters or {}
+        if params.get("host_wall_id") != host_wall.id:
+            continue
+        synced = geometry_kernel_service.update_opening_from_wall(
+            wall_geometry=host_wall.geometry,
+            wall_parameters=host_wall.parameters,
+            opening_geometry=opening.geometry,
+            opening_parameters=params,
+        )
+        opening.geometry = synced.geometry
+        opening.parameters = synced.parameters
+        opening.start = (opening.geometry or {}).get("start") or (opening.parameters or {}).get("start")
+        opening.end = (opening.geometry or {}).get("end") or (opening.parameters or {}).get("end")
+        opening.height = (opening.parameters or {}).get("height")
+        opening.thickness = (opening.parameters or {}).get("thickness")
+
+
+async def _apply_host_wall_for_opening(project_id: str, element: ModelElement, db: AsyncSession) -> None:
+    if str(_enum_to_value(element.type)) not in {"Door", "Window", "Opening"}:
+        return
+    params = element.parameters or {}
+    host_id = params.get("host_wall_id")
+    if not host_id:
+        return
+    host_query = select(ModelElement).where(
+        ModelElement.id == host_id,
+        ModelElement.project_id == project_id,
+        ModelElement.type == "WALL",
+    )
+    host_result = await db.execute(host_query)
+    host_wall = host_result.scalar_one_or_none()
+    if not host_wall:
+        return
+    synced = geometry_kernel_service.update_opening_from_wall(
+        wall_geometry=host_wall.geometry,
+        wall_parameters=host_wall.parameters,
+        opening_geometry=element.geometry,
+        opening_parameters=element.parameters,
+    )
+    element.geometry = synced.geometry
+    element.parameters = synced.parameters
+    element.start = (element.geometry or {}).get("start") or (element.parameters or {}).get("start")
+    element.end = (element.geometry or {}).get("end") or (element.parameters or {}).get("end")
+    element.height = (element.parameters or {}).get("height")
+    element.thickness = (element.parameters or {}).get("thickness")
+
+
 @router.post("/materials", response_model=MaterialOut)
 async def create_material(
     project_id: str,
@@ -108,9 +172,14 @@ async def create_model_element(
     )
     payload_data["geometry"] = kernel_result.geometry
     payload_data["parameters"] = kernel_result.parameters
+    _hydrate_parametric_columns(payload_data)
 
     element = ModelElement(project_id=project_id, **payload_data)
     db.add(element)
+    await db.flush()
+    await _apply_host_wall_for_opening(project_id, element, db)
+    if str(_enum_to_value(payload_data["type"])) == "Wall":
+        await _sync_hosted_openings(project_id, element, db)
     await db.commit()
     await db.refresh(element)
     return element
@@ -158,9 +227,14 @@ async def update_model_element(
         )
         update_data["geometry"] = kernel_result.geometry
         update_data["parameters"] = kernel_result.parameters
+        _hydrate_parametric_columns(update_data)
 
     for field, value in update_data.items():
         setattr(element, field, value)
+
+    await _apply_host_wall_for_opening(project_id, element, db)
+    if str(_enum_to_value(element.type)) == "Wall":
+        await _sync_hosted_openings(project_id, element, db)
 
     await db.commit()
     await db.refresh(element)

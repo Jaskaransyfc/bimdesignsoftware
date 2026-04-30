@@ -57,6 +57,20 @@ const MODEL_ELEMENT_TYPES = [
   "Level",
 ];
 
+type XYZ = [number, number, number];
+
+type ViewerModelElement = {
+  id: string;
+  type: string;
+  name?: string;
+  start?: XYZ;
+  end?: XYZ;
+  height?: number;
+  thickness?: number;
+  geometry?: { position?: XYZ; start?: XYZ; end?: XYZ; rotationY?: number };
+  parameters?: Record<string, any>;
+};
+
 // ─────────────────────────────────────────
 // RIBBON
 // ─────────────────────────────────────────
@@ -508,9 +522,23 @@ function LeftPanel({
 function RightPanel({
   projectId,
   onModelingChanged,
+  selectedModelElement,
+  onUpdateModelElement,
+  onPreviewModelElement,
+  onClearPreviewModelElement,
 }: {
   projectId: string;
   onModelingChanged: () => Promise<void>;
+  selectedModelElement: ViewerModelElement | null;
+  onUpdateModelElement: (
+    elementId: string,
+    payload: Record<string, unknown>,
+  ) => Promise<void>;
+  onPreviewModelElement: (
+    elementId: string,
+    payload: Record<string, unknown>,
+  ) => void;
+  onClearPreviewModelElement: (elementId: string) => void;
 }) {
   const { rightPanelOpen, selectedElement } = useViewerStore();
   const [panelTab, setPanelTab] = useState<"properties" | "modeling">(
@@ -526,6 +554,19 @@ function RightPanel({
   const [elementType, setElementType] = useState("Wall");
   const [elementMaterialId, setElementMaterialId] = useState("");
   const [materialName, setMaterialName] = useState("");
+  const [paramWallStartX, setParamWallStartX] = useState("");
+  const [paramWallStartZ, setParamWallStartZ] = useState("");
+  const [paramWallEndX, setParamWallEndX] = useState("");
+  const [paramWallEndZ, setParamWallEndZ] = useState("");
+  const [paramHeight, setParamHeight] = useState("");
+  const [paramThickness, setParamThickness] = useState("");
+  const [paramWidth, setParamWidth] = useState("");
+  const [paramSill, setParamSill] = useState("");
+  const formatPropertyValue = (value: unknown) => {
+    if (value === null || value === undefined) return "N/A";
+    if (typeof value === "object") return JSON.stringify(value, null, 2);
+    return String(value);
+  };
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
@@ -603,6 +644,101 @@ function RightPanel({
     }
   };
 
+  useEffect(() => {
+    const el = selectedModelElement;
+    if (!el) return;
+    const wallStart = (el.geometry?.start || el.start || [0, 0, 0]) as XYZ;
+    const wallEnd = (el.geometry?.end || el.end || [3, 0, 0]) as XYZ;
+    const p = el.parameters || {};
+    setParamWallStartX(String(wallStart[0] ?? 0));
+    setParamWallStartZ(String(wallStart[2] ?? 0));
+    setParamWallEndX(String(wallEnd[0] ?? 3));
+    setParamWallEndZ(String(wallEnd[2] ?? 0));
+    setParamHeight(String((p.height ?? el.height ?? 3) as number));
+    setParamThickness(String((p.thickness ?? el.thickness ?? 0.2) as number));
+    setParamWidth(String((p.width ?? 1) as number));
+    setParamSill(String((p.sill_height ?? 0) as number));
+  }, [selectedModelElement]);
+
+  const saveParametricChanges = async () => {
+    if (!selectedModelElement) return;
+    const payload: Record<string, unknown> = {};
+    const p = { ...(selectedModelElement.parameters || {}) } as Record<
+      string,
+      unknown
+    >;
+    if (selectedModelElement.type === "Wall") {
+      payload.geometry = {
+        ...(selectedModelElement.geometry || {}),
+        start: [Number(paramWallStartX), 0, Number(paramWallStartZ)],
+        end: [Number(paramWallEndX), 0, Number(paramWallEndZ)],
+      };
+      p.height = Number(paramHeight);
+      p.thickness = Number(paramThickness);
+    } else if (
+      selectedModelElement.type === "Door" ||
+      selectedModelElement.type === "Window" ||
+      selectedModelElement.type === "Opening"
+    ) {
+      p.width = Number(paramWidth);
+      p.height = Number(paramHeight);
+      p.thickness = Number(paramThickness);
+      p.sill_height = Number(paramSill);
+    } else {
+      p.width = Number(paramWidth);
+      p.height = Number(paramHeight);
+      p.depth = Number(paramThickness);
+    }
+    payload.parameters = p;
+    await onUpdateModelElement(selectedModelElement.id, payload);
+    onClearPreviewModelElement(selectedModelElement.id);
+    await loadModelingData();
+  };
+
+  useEffect(() => {
+    if (!selectedModelElement) return;
+    const p = { ...(selectedModelElement.parameters || {}) } as Record<
+      string,
+      unknown
+    >;
+    const payload: Record<string, unknown> = {};
+    if (selectedModelElement.type === "Wall") {
+      payload.geometry = {
+        ...(selectedModelElement.geometry || {}),
+        start: [Number(paramWallStartX), 0, Number(paramWallStartZ)],
+        end: [Number(paramWallEndX), 0, Number(paramWallEndZ)],
+      };
+      p.height = Number(paramHeight);
+      p.thickness = Number(paramThickness);
+    } else if (
+      selectedModelElement.type === "Door" ||
+      selectedModelElement.type === "Window" ||
+      selectedModelElement.type === "Opening"
+    ) {
+      p.width = Number(paramWidth);
+      p.height = Number(paramHeight);
+      p.thickness = Number(paramThickness);
+      p.sill_height = Number(paramSill);
+    } else {
+      p.width = Number(paramWidth);
+      p.height = Number(paramHeight);
+      p.depth = Number(paramThickness);
+    }
+    payload.parameters = p;
+    onPreviewModelElement(selectedModelElement.id, payload);
+  }, [
+    onPreviewModelElement,
+    paramHeight,
+    paramSill,
+    paramThickness,
+    paramWallEndX,
+    paramWallEndZ,
+    paramWallStartX,
+    paramWallStartZ,
+    paramWidth,
+    selectedModelElement,
+  ]);
+
   if (!rightPanelOpen) return null;
 
   return (
@@ -653,7 +789,7 @@ function RightPanel({
                 <span className="text-[9px] text-blue-400/60 font-bold uppercase tracking-wider">
                   Global ID
                 </span>
-                <p className="text-xs font-mono text-white/50 mt-0.5">
+                <p className="text-xs font-mono text-white/50 mt-0.5 break-all">
                   {selectedElement.global_id}
                 </p>
               </div>
@@ -673,14 +809,14 @@ function RightPanel({
                     ([k, v]: [string, any]) => (
                       <div
                         key={k}
-                        className="bg-white/[0.02] rounded-lg px-3 py-2 hover:bg-white/[0.05] transition-all"
+                        className="bg-white/[0.02] rounded-lg px-3 py-2 hover:bg-white/[0.05] transition-all overflow-hidden"
                       >
                         <span className="text-[9px] text-white/30 font-bold uppercase tracking-wider block">
                           {k}
                         </span>
-                        <span className="text-xs text-white/80 font-medium">
-                          {String(v)}
-                        </span>
+                        <pre className="text-xs text-white/80 font-medium whitespace-pre-wrap break-words max-h-36 overflow-auto">
+                          {formatPropertyValue(v)}
+                        </pre>
                       </div>
                     ),
                   )}
@@ -697,6 +833,47 @@ function RightPanel({
           </div>
         ) : (
           <div className="space-y-5">
+            {selectedModelElement && (
+              <div className="space-y-2 rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-blue-300">
+                  Module 8: Parametric Engine
+                </p>
+                <p className="text-[10px] text-white/60">
+                  Editing: {selectedModelElement.type}{" "}
+                  {selectedModelElement.name || selectedModelElement.id}
+                </p>
+                {selectedModelElement.type === "Wall" ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-[10px] text-white/65">Start X (m)<input value={paramWallStartX} onChange={(e) => setParamWallStartX(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    <label className="text-[10px] text-white/65">Start Z (m)<input value={paramWallStartZ} onChange={(e) => setParamWallStartZ(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    <label className="text-[10px] text-white/65">End X (m)<input value={paramWallEndX} onChange={(e) => setParamWallEndX(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    <label className="text-[10px] text-white/65">End Z (m)<input value={paramWallEndZ} onChange={(e) => setParamWallEndZ(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    <label className="text-[10px] text-white/65">Height (Y, m)<input value={paramHeight} onChange={(e) => setParamHeight(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    <label className="text-[10px] text-white/65">Thickness (m)<input value={paramThickness} onChange={(e) => setParamThickness(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-[10px] text-white/65">Width (X, m)<input value={paramWidth} onChange={(e) => setParamWidth(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    <label className="text-[10px] text-white/65">Height (Y, m)<input value={paramHeight} onChange={(e) => setParamHeight(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    <label className="text-[10px] text-white/65">{selectedModelElement.type === "Door" || selectedModelElement.type === "Window" || selectedModelElement.type === "Opening" ? "Thickness (Z, m)" : "Depth (Z, m)"}<input value={paramThickness} onChange={(e) => setParamThickness(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    {(selectedModelElement.type === "Door" ||
+                      selectedModelElement.type === "Window" ||
+                      selectedModelElement.type === "Opening") && (
+                      <label className="text-[10px] text-white/65">Sill Height (m)<input value={paramSill} onChange={(e) => setParamSill(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    )}
+                  </div>
+                )}
+                <button
+                  onClick={saveParametricChanges}
+                  className="w-full rounded bg-blue-600/80 py-1.5 text-xs font-semibold hover:bg-blue-600"
+                >
+                  Apply Parametric Update
+                </button>
+                <p className="text-[10px] text-white/45">
+                  Tip: Select in 3D, then use move/resize handles to adjust position and dimensions.
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-white/40 uppercase tracking-wider">
                 Existing Elements ({modelElements.length})
@@ -841,6 +1018,9 @@ function Viewport({
   modelElements,
   hiddenModelElementIds,
   selectedModelElementId,
+  onSelectModelElement,
+  onUpdateModelElement,
+  previewModelElementUpdates,
 }: {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   viewerRef: React.MutableRefObject<Viewer | null>;
@@ -853,16 +1033,77 @@ function Viewport({
     id: string;
     type: string;
     name?: string;
-    geometry?: { position?: [number, number, number] };
+    geometry?: { position?: [number, number, number]; rotationY?: number; start?: XYZ; end?: XYZ };
+    parameters?: Record<string, any>;
   }>;
   hiddenModelElementIds: Set<string>;
   selectedModelElementId: string | null;
+  onSelectModelElement: (elementId: string) => void;
+  onUpdateModelElement: (
+    elementId: string,
+    payload: Record<string, unknown>,
+  ) => Promise<void>;
+  previewModelElementUpdates: Record<string, Record<string, unknown>>;
 }) {
   const threeHostRef = useRef<HTMLDivElement>(null);
   const threeCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const threeSceneRef = useRef<THREE.Scene | null>(null);
   const threeControlsRef = useRef<OrbitControls | null>(null);
+  const threeCameraSnapshotRef = useRef<{
+    position: [number, number, number];
+    target: [number, number, number];
+  } | null>(null);
   const threeMeshMapRef = useRef<Map<string, THREE.Mesh>>(new Map());
+  const threeRaycasterRef = useRef(new THREE.Raycaster());
+  const threePointerRef = useRef(new THREE.Vector2());
+  const threeHoveredElementIdRef = useRef<string | null>(null);
+  const threeMoveArrowsRef = useRef<THREE.Group | null>(null);
+  const threeAxisGuideRef = useRef<THREE.Line | null>(null);
+  const threeResizeHandlesRef = useRef<THREE.Mesh[]>([]);
+  const freeMoveDragRef = useRef<{
+    active: boolean;
+    elementId: string | null;
+    y: number;
+  }>({ active: false, elementId: null, y: 0 });
+  const resizeDragRef = useRef<{
+    active: boolean;
+    elementId: string | null;
+    axis: "x" | "y" | "z";
+    direction: 1 | -1;
+    startClientX: number;
+    startClientY: number;
+    startScale: THREE.Vector3;
+  }>({
+    active: false,
+    elementId: null,
+    axis: "x",
+    direction: 1,
+    startClientX: 0,
+    startClientY: 0,
+    startScale: new THREE.Vector3(1, 1, 1),
+  });
+  const axisDragRef = useRef<{
+    active: boolean;
+    elementId: string | null;
+    axis: "x" | "y" | "z" | null;
+    axisDir: THREE.Vector3;
+    axisOrigin: THREE.Vector3;
+    startPoint: THREE.Vector3;
+    startPosition: THREE.Vector3;
+  }>({
+    active: false,
+    elementId: null,
+    axis: null,
+    axisDir: new THREE.Vector3(1, 0, 0),
+    axisOrigin: new THREE.Vector3(),
+    startPoint: new THREE.Vector3(),
+    startPosition: new THREE.Vector3(),
+  });
+  const [axisHint, setAxisHint] = useState<{
+    axis: "x" | "y" | "z";
+    delta: number;
+    dragging: boolean;
+  } | null>(null);
   const threeXrayRef = useRef(false);
   const threeSelectionOutlineRef = useRef<THREE.LineSegments | null>(null);
 
@@ -879,7 +1120,12 @@ function Viewport({
       0.1,
       5000,
     );
-    camera.position.set(20, 20, 20);
+    if (threeCameraSnapshotRef.current) {
+      const saved = threeCameraSnapshotRef.current;
+      camera.position.set(saved.position[0], saved.position[1], saved.position[2]);
+    } else {
+      camera.position.set(20, 20, 20);
+    }
     threeCameraRef.current = camera;
     threeSceneRef.current = scene;
 
@@ -891,8 +1137,89 @@ function Viewport({
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.target.set(0, 0, 0);
+    if (threeCameraSnapshotRef.current) {
+      const saved = threeCameraSnapshotRef.current;
+      controls.target.set(saved.target[0], saved.target[1], saved.target[2]);
+    } else {
+      controls.target.set(0, 0, 0);
+    }
     threeControlsRef.current = controls;
+    const moveArrows = new THREE.Group();
+    const axisGroup = new THREE.Group();
+    const makeAxisLine = (
+      to: [number, number, number],
+      color: number,
+      axis: "x" | "y" | "z",
+    ) => {
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(to[0], to[1], to[2]),
+      ]);
+      const lineMat = new THREE.LineBasicMaterial({ color });
+      lineMat.depthTest = false;
+      lineMat.transparent = true;
+      lineMat.opacity = 0.95;
+      const line = new THREE.Line(lineGeo, lineMat);
+      line.renderOrder = 999;
+      line.userData.isAxisHandle = true;
+      line.userData.axis = axis;
+      return line;
+    };
+    const makeArrow = (
+      dir: THREE.Vector3,
+      color: number,
+      len: number,
+      axis: "x" | "y" | "z",
+    ) => {
+      const arrow = new THREE.ArrowHelper(
+        dir,
+        new THREE.Vector3(0, 0, 0),
+        len,
+        color,
+        Math.max(0.3, len * 0.22),
+        Math.max(0.16, len * 0.12),
+      );
+      arrow.line.material.depthTest = false;
+      arrow.line.material.transparent = true;
+      arrow.line.material.opacity = 0.95;
+      arrow.cone.material.depthTest = false;
+      arrow.cone.material.transparent = true;
+      arrow.cone.material.opacity = 0.95;
+      arrow.line.renderOrder = 1000;
+      arrow.cone.renderOrder = 1001;
+      arrow.userData.isAxisHandle = true;
+      arrow.userData.axis = axis;
+      arrow.line.userData.isAxisHandle = true;
+      arrow.line.userData.axis = axis;
+      arrow.cone.userData.isAxisHandle = true;
+      arrow.cone.userData.axis = axis;
+      return arrow;
+    };
+    axisGroup.add(makeAxisLine([2.2, 0, 0], 0xff3b3b, "x"));
+    axisGroup.add(makeAxisLine([0, 2.2, 0], 0x2bff6a, "y"));
+    axisGroup.add(makeAxisLine([0, 0, 2.2], 0x3b82ff, "z"));
+    axisGroup.add(makeArrow(new THREE.Vector3(1, 0, 0), 0xff3b3b, 2.2, "x"));
+    axisGroup.add(makeArrow(new THREE.Vector3(0, 1, 0), 0x2bff6a, 2.2, "y"));
+    axisGroup.add(makeArrow(new THREE.Vector3(0, 0, 1), 0x3b82ff, 2.2, "z"));
+    moveArrows.add(axisGroup);
+    moveArrows.visible = false;
+    scene.add(moveArrows);
+    threeMoveArrowsRef.current = moveArrows;
+    const axisGuideGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, 0),
+    ]);
+    const axisGuideMaterial = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.9,
+    });
+    axisGuideMaterial.depthTest = false;
+    const axisGuide = new THREE.Line(axisGuideGeometry, axisGuideMaterial);
+    axisGuide.visible = false;
+    axisGuide.renderOrder = 1200;
+    scene.add(axisGuide);
+    threeAxisGuideRef.current = axisGuide;
 
     scene.add(new THREE.GridHelper(200, 100, 0x2b5bd7, 0x1f2a44));
     scene.add(new THREE.AxesHelper(5));
@@ -922,24 +1249,93 @@ function Viewport({
       id: string;
       type: string;
       geometry?: { position?: [number, number, number] };
+      parameters?: Record<string, unknown>;
     }) => {
-      const pos = el.geometry?.position || [0, 0, 0];
+      const preview = previewModelElementUpdates[el.id] || {};
+      const previewGeometry = (preview.geometry as Record<string, unknown>) || {};
+      const previewParams = (preview.parameters as Record<string, unknown>) || {};
+      const mergedGeometry = { ...(el.geometry || {}), ...previewGeometry } as {
+        position?: [number, number, number];
+        rotationY?: number;
+        start?: [number, number, number];
+        end?: [number, number, number];
+      };
+      let pos = mergedGeometry.position || [0, 0, 0];
       let geometry: THREE.BufferGeometry;
 
-      if (el.type === "Column") geometry = new THREE.BoxGeometry(0.4, 3, 0.4);
-      else if (el.type === "Slab") geometry = new THREE.BoxGeometry(4, 0.3, 4);
+      const p = { ...(el.parameters || {}), ...previewParams };
+      if (el.type === "Wall")
+        {
+          const ws = mergedGeometry.start;
+          const we = mergedGeometry.end;
+          let wallLen = Number(p.length ?? 3);
+          let wallRot = Number(mergedGeometry.rotationY ?? 0);
+          if (ws && we) {
+            const dx = we[0] - ws[0];
+            const dz = we[2] - ws[2];
+            wallLen = Math.max(0.1, Math.hypot(dx, dz));
+            wallRot = Math.atan2(dz, dx);
+            pos = [(ws[0] + we[0]) * 0.5, Number(p.height ?? 3) * 0.5, (ws[2] + we[2]) * 0.5];
+          }
+          geometry = new THREE.BoxGeometry(
+            wallLen,
+            Number(p.height ?? 3),
+            Number(p.thickness ?? 0.23),
+          );
+          mergedGeometry.rotationY = wallRot;
+        }
+      else if (el.type === "Column")
+        geometry = new THREE.BoxGeometry(
+          Number(p.width ?? 0.4),
+          Number(p.height ?? 3),
+          Number(p.depth ?? 0.4),
+        );
+      else if (el.type === "Slab")
+        geometry = new THREE.BoxGeometry(
+          Number(p.width ?? 4),
+          Number(p.height ?? 0.3),
+          Number(p.depth ?? 4),
+        );
       else if (el.type === "Beam")
-        geometry = new THREE.BoxGeometry(3, 0.35, 0.35);
+        geometry = new THREE.BoxGeometry(
+          Number(p.width ?? 3),
+          Number(p.height ?? 0.35),
+          Number(p.depth ?? 0.35),
+        );
       else if (el.type === "Door")
-        geometry = new THREE.BoxGeometry(1, 2.1, 0.12);
+        geometry = new THREE.BoxGeometry(
+          Number(p.width ?? 1),
+          Number(p.height ?? 2.1),
+          Number(p.thickness ?? 0.12),
+        );
       else if (el.type === "Window")
-        geometry = new THREE.BoxGeometry(1.2, 1.2, 0.12);
-      else if (el.type === "Room") geometry = new THREE.BoxGeometry(4, 2.7, 4);
+        geometry = new THREE.BoxGeometry(
+          Number(p.width ?? 1.2),
+          Number(p.height ?? 1.2),
+          Number(p.thickness ?? 0.12),
+        );
+      else if (el.type === "Opening")
+        geometry = new THREE.BoxGeometry(
+          Number(p.width ?? 1),
+          Number(p.height ?? 1),
+          Number(p.thickness ?? 0.12),
+        );
+      else if (el.type === "Room")
+        geometry = new THREE.BoxGeometry(
+          Number(p.width ?? 4),
+          Number(p.height ?? 2.7),
+          Number(p.depth ?? 4),
+        );
       else if (el.type === "Grid")
         geometry = new THREE.BoxGeometry(0.05, 0.05, 5);
       else if (el.type === "Level")
         geometry = new THREE.BoxGeometry(5, 0.05, 0.05);
-      else geometry = new THREE.BoxGeometry(3, 3, 0.23); // Wall/default
+      else
+        geometry = new THREE.BoxGeometry(
+          Number(p.width ?? 3),
+          Number(p.height ?? 3),
+          Number(p.depth ?? 0.23),
+        );
 
       const material = new THREE.MeshStandardMaterial({
         color: colorForType(el.type),
@@ -948,6 +1344,7 @@ function Viewport({
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(pos[0], pos[1], pos[2]);
+      mesh.rotation.y = Number(mergedGeometry.rotationY ?? 0);
       mesh.userData.basePosition = [...pos];
       mesh.userData.elementId = el.id;
       mesh.visible = !hiddenModelElementIds.has(el.id);
@@ -957,6 +1354,488 @@ function Viewport({
 
     threeMeshMapRef.current.clear();
     modelElements.forEach(addElementMesh);
+
+    const clearResizeHandles = () => {
+      threeResizeHandlesRef.current.forEach((h) => {
+        if (h.parent) h.parent.remove(h);
+        h.geometry.dispose();
+        (h.material as THREE.Material).dispose();
+      });
+      threeResizeHandlesRef.current = [];
+    };
+
+    const addResizeHandles = (mesh: THREE.Mesh) => {
+      clearResizeHandles();
+      const box = new THREE.Box3().setFromBufferAttribute(
+        (mesh.geometry as THREE.BufferGeometry).attributes
+          .position as THREE.BufferAttribute,
+      );
+      const size = box.getSize(new THREE.Vector3());
+      const hx = Math.max(0.1, size.x * 0.5);
+      const hy = Math.max(0.1, size.y * 0.5);
+      const hz = Math.max(0.1, size.z * 0.5);
+      const defs: Array<{
+        axis: "x" | "y" | "z";
+        dir: 1 | -1;
+        pos: [number, number, number];
+        color: number;
+      }> = [
+        { axis: "x", dir: 1, pos: [hx * 1.15, 0, 0], color: 0xff4d4d },
+        { axis: "x", dir: -1, pos: [-hx * 1.15, 0, 0], color: 0xff4d4d },
+        { axis: "y", dir: 1, pos: [0, hy * 1.15, 0], color: 0x4dff8a },
+        { axis: "y", dir: -1, pos: [0, -hy * 1.15, 0], color: 0x4dff8a },
+        { axis: "z", dir: 1, pos: [0, 0, hz * 1.15], color: 0x4da6ff },
+        { axis: "z", dir: -1, pos: [0, 0, -hz * 1.15], color: 0x4da6ff },
+      ];
+      defs.forEach((def) => {
+        const g = new THREE.SphereGeometry(
+          Math.max(0.12, Math.min(hx, hy, hz) * 0.2),
+          14,
+          14,
+        );
+        const m = new THREE.MeshBasicMaterial({
+          color: def.color,
+          transparent: true,
+          opacity: 0.95,
+        });
+        const h = new THREE.Mesh(g, m);
+        h.position.set(def.pos[0], def.pos[1], def.pos[2]);
+        h.userData.isResizeHandle = true;
+        h.userData.axis = def.axis;
+        h.userData.direction = def.dir;
+        mesh.add(h);
+        threeResizeHandlesRef.current.push(h);
+      });
+    };
+    if (selectedModelElementId) {
+      const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
+      if (selectedMesh) {
+        addResizeHandles(selectedMesh);
+        if (threeMoveArrowsRef.current) {
+          const bbox = new THREE.Box3().setFromObject(selectedMesh);
+          const size = bbox.getSize(new THREE.Vector3());
+          const axisLen = Math.max(2.2, size.length() * 0.55);
+          const axis = threeMoveArrowsRef.current.children[0] as THREE.Group | undefined;
+          if (axis) {
+            axis.scale.set(axisLen / 2.2, axisLen / 2.2, axisLen / 2.2);
+          }
+          threeMoveArrowsRef.current.position.copy(selectedMesh.position);
+          threeMoveArrowsRef.current.rotation.copy(selectedMesh.rotation);
+          threeMoveArrowsRef.current.visible = true;
+        }
+      }
+    }
+
+    const pickMeshFromPointer = (event: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
+      const meshes = Array.from(threeMeshMapRef.current.values()).filter(
+        (m) => m.visible,
+      );
+      const hits = threeRaycasterRef.current.intersectObjects(meshes, false);
+      return hits[0]?.object as THREE.Mesh | undefined;
+    };
+
+    const pickResizeHandleFromPointer = (event: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
+      const hits = threeRaycasterRef.current.intersectObjects(
+        threeResizeHandlesRef.current,
+        false,
+      );
+      return hits[0]?.object as THREE.Mesh | undefined;
+    };
+
+    const pickAxisHandleFromPointer = (event: PointerEvent) => {
+      if (!threeMoveArrowsRef.current || !threeMoveArrowsRef.current.visible) return null;
+      const rect = renderer.domElement.getBoundingClientRect();
+      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
+      const axisObjects: THREE.Object3D[] = [];
+      threeMoveArrowsRef.current.traverse((obj) => {
+        if (obj.userData?.isAxisHandle) axisObjects.push(obj);
+      });
+      const hits = threeRaycasterRef.current.intersectObjects(axisObjects, true);
+      return (hits[0]?.object as THREE.Object3D | undefined) || null;
+    };
+
+    const showAxisGuide = (axis: "x" | "y" | "z", at: THREE.Vector3) => {
+      if (!threeAxisGuideRef.current) return;
+      const span = 200;
+      const p1 = at.clone();
+      const p2 = at.clone();
+      const mat = threeAxisGuideRef.current.material as THREE.LineBasicMaterial;
+      if (axis === "x") {
+        p1.x -= span;
+        p2.x += span;
+        mat.color.setHex(0xff3b3b);
+      } else if (axis === "y") {
+        p1.y -= span;
+        p2.y += span;
+        mat.color.setHex(0x2bff6a);
+      } else {
+        p1.z -= span;
+        p2.z += span;
+        mat.color.setHex(0x3b82ff);
+      }
+      threeAxisGuideRef.current.geometry.setFromPoints([p1, p2]);
+      threeAxisGuideRef.current.visible = true;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const axisHandle = pickAxisHandleFromPointer(event);
+      if (axisHandle) {
+        const axis = axisHandle.userData.axis as "x" | "y" | "z";
+        if (threeMoveArrowsRef.current) {
+          showAxisGuide(axis, threeMoveArrowsRef.current.position);
+        }
+        if (!axisDragRef.current.active) {
+          setAxisHint({ axis, delta: 0, dragging: false });
+        }
+        const hostEl = threeHostRef.current;
+        if (hostEl) hostEl.style.cursor = "grab";
+        return;
+      }
+      const handle = pickResizeHandleFromPointer(event);
+      if (handle) {
+        const axis = handle.userData.axis as "x" | "y" | "z";
+        const hostEl = threeHostRef.current;
+        if (hostEl) {
+          hostEl.style.cursor = axis === "y" ? "ns-resize" : "ew-resize";
+        }
+        threeResizeHandlesRef.current.forEach((h) => {
+          const mat = h.material as THREE.MeshBasicMaterial;
+          mat.opacity = h === handle ? 1 : 0.75;
+        });
+        return;
+      }
+      if (threeAxisGuideRef.current && !axisDragRef.current.active) {
+        threeAxisGuideRef.current.visible = false;
+        setAxisHint(null);
+      }
+      const mesh = pickMeshFromPointer(event);
+      const nextHover = (mesh?.userData.elementId as string | undefined) || null;
+      threeHoveredElementIdRef.current = nextHover;
+      const hostEl = threeHostRef.current;
+      if (hostEl) {
+        hostEl.style.cursor = nextHover ? "pointer" : "default";
+      }
+      threeResizeHandlesRef.current.forEach((h) => {
+        const mat = h.material as THREE.MeshBasicMaterial;
+        mat.opacity = 0.95;
+      });
+      threeMeshMapRef.current.forEach((m, id) => {
+        const mat = m.material as THREE.MeshStandardMaterial;
+        if (id === selectedModelElementId) return;
+        if (id === nextHover) {
+          mat.emissive = new THREE.Color(0x223366);
+          mat.emissiveIntensity = 0.45;
+        } else {
+          mat.emissive = new THREE.Color(0x000000);
+          mat.emissiveIntensity = 0;
+        }
+      });
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      const axisHandle = pickAxisHandleFromPointer(event);
+      if (axisHandle && selectedModelElementId) {
+        const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
+        if (selectedMesh) {
+          const axis = axisHandle.userData.axis as "x" | "y" | "z";
+          const axisDirLocal =
+            axis === "x"
+              ? new THREE.Vector3(1, 0, 0)
+              : axis === "y"
+                ? new THREE.Vector3(0, 1, 0)
+                : new THREE.Vector3(0, 0, 1);
+          const axisDir = axisDirLocal
+            .clone()
+            .applyQuaternion(selectedMesh.quaternion)
+            .normalize();
+          const origin = selectedMesh.position.clone();
+          const pOnRay = new THREE.Vector3();
+          const pOnSeg = new THREE.Vector3();
+          const segA = origin.clone().addScaledVector(axisDir, -1000);
+          const segB = origin.clone().addScaledVector(axisDir, 1000);
+          const rect = renderer.domElement.getBoundingClientRect();
+          threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+          threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+          threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
+          threeRaycasterRef.current.ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
+          axisDragRef.current = {
+            active: true,
+            elementId: selectedModelElementId,
+            axis,
+            axisDir,
+            axisOrigin: origin,
+            startPoint: pOnSeg.clone(),
+            startPosition: selectedMesh.position.clone(),
+          };
+          controls.enabled = false;
+          showAxisGuide(axis, origin);
+          setAxisHint({ axis, delta: 0, dragging: true });
+          return;
+        }
+      }
+      const handle = pickResizeHandleFromPointer(event);
+      if (handle && selectedModelElementId) {
+        const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
+        if (selectedMesh) {
+          resizeDragRef.current = {
+            active: true,
+            elementId: selectedModelElementId,
+            axis: handle.userData.axis as "x" | "y" | "z",
+            direction: (handle.userData.direction as 1 | -1) || 1,
+            startClientX: event.clientX,
+            startClientY: event.clientY,
+            startScale: selectedMesh.scale.clone(),
+          };
+          controls.enabled = false;
+          return;
+        }
+      }
+      const rect = renderer.domElement.getBoundingClientRect();
+      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
+      const meshes = Array.from(threeMeshMapRef.current.values()).filter(
+        (m) => m.visible,
+      );
+      const hits = threeRaycasterRef.current.intersectObjects(meshes, false);
+      const mesh = hits[0]?.object as THREE.Mesh | undefined;
+      const id = mesh?.userData.elementId as string | undefined;
+      if (id) {
+        onSelectModelElement(id);
+        if (id === selectedModelElementId) {
+          const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
+          if (selectedMesh) {
+            freeMoveDragRef.current = {
+              active: true,
+              elementId: selectedModelElementId,
+              y: selectedMesh.position.y,
+            };
+            controls.enabled = false;
+          }
+        }
+      }
+    };
+
+    const onPointerUp = async () => {
+      if (axisDragRef.current.active) {
+        const id = axisDragRef.current.elementId;
+        axisDragRef.current.active = false;
+        controls.enabled = true;
+        if (threeAxisGuideRef.current) threeAxisGuideRef.current.visible = false;
+        setAxisHint(null);
+        if (!id) return;
+        const mesh = threeMeshMapRef.current.get(id);
+        const element = modelElements.find((el) => el.id === id);
+        if (!mesh || !element) return;
+        const payload: Record<string, unknown> = {};
+        const p = { ...(element.parameters || {}) } as Record<string, unknown>;
+        if (element.type === "Wall") {
+          const prevPos = (element.geometry?.position || [0, 0, 0]) as XYZ;
+          const prevStart = (element.geometry?.start || element.start || [0, 0, 0]) as XYZ;
+          const prevEnd = (element.geometry?.end || element.end || [3, 0, 0]) as XYZ;
+          const dx = mesh.position.x - prevPos[0];
+          const dz = mesh.position.z - prevPos[2];
+          payload.geometry = {
+            ...(element.geometry || {}),
+            start: [prevStart[0] + dx, 0, prevStart[2] + dz],
+            end: [prevEnd[0] + dx, 0, prevEnd[2] + dz],
+          };
+        } else {
+          payload.geometry = {
+            ...(element.geometry || {}),
+            position: [mesh.position.x, mesh.position.y, mesh.position.z],
+          };
+          if (
+            element.type === "Door" ||
+            element.type === "Window" ||
+            element.type === "Opening"
+          ) {
+            p.host_wall_id = null;
+          }
+        }
+        payload.parameters = p;
+        await onUpdateModelElement(id, payload);
+        return;
+      }
+      const wasMove = freeMoveDragRef.current.active;
+      const wasResize = resizeDragRef.current.active;
+      if (!wasMove && !wasResize) return;
+      freeMoveDragRef.current.active = false;
+      resizeDragRef.current.active = false;
+      controls.enabled = true;
+      const id = freeMoveDragRef.current.elementId || resizeDragRef.current.elementId;
+      if (!id) return;
+      const mesh = threeMeshMapRef.current.get(id);
+      const element = modelElements.find((el) => el.id === id);
+      if (!mesh || !element) return;
+      const payload: Record<string, unknown> = {};
+      const p = { ...(element.parameters || {}) } as Record<string, unknown>;
+      const nextParams = { ...p } as Record<string, unknown>;
+      if (wasMove) {
+        if (element.type === "Wall") {
+          const prevPos = (element.geometry?.position || [0, 0, 0]) as XYZ;
+          const prevStart = (element.geometry?.start || element.start || [0, 0, 0]) as XYZ;
+          const prevEnd = (element.geometry?.end || element.end || [3, 0, 0]) as XYZ;
+          const dx = mesh.position.x - prevPos[0];
+          const dz = mesh.position.z - prevPos[2];
+          payload.geometry = {
+            ...(element.geometry || {}),
+            start: [prevStart[0] + dx, 0, prevStart[2] + dz],
+            end: [prevEnd[0] + dx, 0, prevEnd[2] + dz],
+          };
+        } else {
+          payload.geometry = {
+            ...(element.geometry || {}),
+            position: [mesh.position.x, mesh.position.y, mesh.position.z],
+          };
+          if (
+            element.type === "Door" ||
+            element.type === "Window" ||
+            element.type === "Opening"
+          ) {
+            p.host_wall_id = null;
+          }
+        }
+      } else {
+        const sx = Math.max(0.1, mesh.scale.x);
+        const sy = Math.max(0.1, mesh.scale.y);
+        const sz = Math.max(0.1, mesh.scale.z);
+        if (element.type === "Wall") {
+          nextParams.height = Number(p.height ?? element.height ?? 3) * sy;
+          nextParams.thickness = Number(p.thickness ?? element.thickness ?? 0.23) * sz;
+          const prevStart = (element.geometry?.start || element.start || [0, 0, 0]) as XYZ;
+          const prevEnd = (element.geometry?.end || element.end || [3, 0, 0]) as XYZ;
+          const cx = (prevStart[0] + prevEnd[0]) * 0.5;
+          const cz = (prevStart[2] + prevEnd[2]) * 0.5;
+          const hx = (prevEnd[0] - prevStart[0]) * 0.5 * sx;
+          const hz = (prevEnd[2] - prevStart[2]) * 0.5 * sx;
+          payload.geometry = {
+            ...(element.geometry || {}),
+            start: [cx - hx, 0, cz - hz],
+            end: [cx + hx, 0, cz + hz],
+          };
+        } else if (
+          element.type === "Door" ||
+          element.type === "Window" ||
+          element.type === "Opening"
+        ) {
+          nextParams.width = Number(p.width ?? 1) * sx;
+          nextParams.height = Number(p.height ?? 2.1) * sy;
+          nextParams.thickness = Number(p.thickness ?? 0.12) * sz;
+          nextParams.host_wall_id = null;
+        } else {
+          nextParams.width = Number(p.width ?? 1) * sx;
+          nextParams.height = Number(p.height ?? 1) * sy;
+          nextParams.depth = Number(p.depth ?? 1) * sz;
+        }
+        mesh.scale.set(1, 1, 1);
+      }
+      if (!payload.geometry) {
+        payload.geometry = {
+          ...(element.geometry || {}),
+          position: [mesh.position.x, mesh.position.y, mesh.position.z],
+        };
+      }
+      payload.parameters = wasResize ? nextParams : p;
+      await onUpdateModelElement(id, payload);
+    };
+
+    const onPointerDrag = (event: PointerEvent) => {
+      if (!freeMoveDragRef.current.active) return;
+      const id = freeMoveDragRef.current.elementId;
+      if (!id) return;
+      const mesh = threeMeshMapRef.current.get(id);
+      if (!mesh) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
+      const plane = new THREE.Plane(
+        new THREE.Vector3(0, 1, 0),
+        -freeMoveDragRef.current.y,
+      );
+      const hit = new THREE.Vector3();
+      if (threeRaycasterRef.current.ray.intersectPlane(plane, hit)) {
+        mesh.position.x = hit.x;
+        mesh.position.z = hit.z;
+      }
+    };
+    const onResizeDrag = (event: PointerEvent) => {
+      if (!resizeDragRef.current.active) return;
+      const id = resizeDragRef.current.elementId;
+      if (!id) return;
+      const mesh = threeMeshMapRef.current.get(id);
+      if (!mesh) return;
+      const dx = event.clientX - resizeDragRef.current.startClientX;
+      const dy = event.clientY - resizeDragRef.current.startClientY;
+      let delta = 0;
+      if (resizeDragRef.current.axis === "x") {
+        delta = dx * 0.0035 * resizeDragRef.current.direction;
+      } else if (resizeDragRef.current.axis === "y") {
+        delta = -dy * 0.0035 * resizeDragRef.current.direction;
+      } else {
+        delta = dx * 0.0035 * resizeDragRef.current.direction;
+      }
+      const scale = Math.max(0.2, 1 + delta);
+      const base = resizeDragRef.current.startScale;
+      if (resizeDragRef.current.axis === "x") mesh.scale.x = base.x * scale;
+      if (resizeDragRef.current.axis === "y") mesh.scale.y = base.y * scale;
+      if (resizeDragRef.current.axis === "z") mesh.scale.z = base.z * scale;
+    };
+    const onAxisDrag = (event: PointerEvent) => {
+      if (!axisDragRef.current.active) return;
+      const id = axisDragRef.current.elementId;
+      if (!id) return;
+      const mesh = threeMeshMapRef.current.get(id);
+      if (!mesh) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
+      const pOnRay = new THREE.Vector3();
+      const pOnSeg = new THREE.Vector3();
+      const segA = axisDragRef.current.axisOrigin
+        .clone()
+        .addScaledVector(axisDragRef.current.axisDir, -1000);
+      const segB = axisDragRef.current.axisOrigin
+        .clone()
+        .addScaledVector(axisDragRef.current.axisDir, 1000);
+      threeRaycasterRef.current.ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
+      const delta = pOnSeg.clone().sub(axisDragRef.current.startPoint);
+      const dist = delta.dot(axisDragRef.current.axisDir);
+      mesh.position
+        .copy(axisDragRef.current.startPosition)
+        .addScaledVector(axisDragRef.current.axisDir, dist);
+      if (threeMoveArrowsRef.current) {
+        threeMoveArrowsRef.current.position.copy(mesh.position);
+      }
+      showAxisGuide(axisDragRef.current.axis || "x", mesh.position);
+      if (axisDragRef.current.axis) {
+        setAxisHint({
+          axis: axisDragRef.current.axis,
+          delta: dist,
+          dragging: true,
+        });
+      }
+    };
+
+    renderer.domElement.addEventListener("pointermove", onPointerMove);
+    renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    renderer.domElement.addEventListener("pointerup", onPointerUp);
+    renderer.domElement.addEventListener("pointerleave", onPointerUp);
+    renderer.domElement.addEventListener("pointermove", onPointerDrag);
+    renderer.domElement.addEventListener("pointermove", onResizeDrag);
+    renderer.domElement.addEventListener("pointermove", onAxisDrag);
 
     let raf = 0;
     const animate = () => {
@@ -978,6 +1857,20 @@ function Viewport({
     resizeObserver.observe(host);
 
     return () => {
+      if (threeCameraRef.current && threeControlsRef.current) {
+        threeCameraSnapshotRef.current = {
+          position: [
+            threeCameraRef.current.position.x,
+            threeCameraRef.current.position.y,
+            threeCameraRef.current.position.z,
+          ],
+          target: [
+            threeControlsRef.current.target.x,
+            threeControlsRef.current.target.y,
+            threeControlsRef.current.target.z,
+          ],
+        };
+      }
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
       resizeObserver.disconnect();
@@ -989,14 +1882,39 @@ function Viewport({
         threeSelectionOutlineRef.current = null;
       }
       controls.dispose();
+      if (threeMoveArrowsRef.current && threeMoveArrowsRef.current.parent) {
+        threeMoveArrowsRef.current.parent.remove(threeMoveArrowsRef.current);
+      }
+      threeMoveArrowsRef.current = null;
+      if (threeAxisGuideRef.current && threeAxisGuideRef.current.parent) {
+        threeAxisGuideRef.current.parent.remove(threeAxisGuideRef.current);
+      }
+      threeAxisGuideRef.current = null;
+      clearResizeHandles();
       renderer.dispose();
+      renderer.domElement.removeEventListener("pointermove", onPointerMove);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointerup", onPointerUp);
+      renderer.domElement.removeEventListener("pointerleave", onPointerUp);
+      renderer.domElement.removeEventListener("pointermove", onPointerDrag);
+      renderer.domElement.removeEventListener("pointermove", onResizeDrag);
+      renderer.domElement.removeEventListener("pointermove", onAxisDrag);
+      setAxisHint(null);
       host.innerHTML = "";
       threeMeshMapRef.current.clear();
       threeControlsRef.current = null;
       threeCameraRef.current = null;
       threeSceneRef.current = null;
     };
-  }, [blankModelingMode, modelElements, hiddenModelElementIds]);
+  }, [
+    blankModelingMode,
+    modelElements,
+    hiddenModelElementIds,
+    onSelectModelElement,
+    onUpdateModelElement,
+    previewModelElementUpdates,
+    selectedModelElementId,
+  ]);
 
   useEffect(() => {
     if (!blankModelingMode) return;
@@ -1025,6 +1943,51 @@ function Viewport({
     ) {
       const mesh = threeMeshMapRef.current.get(selectedModelElementId);
       if (mesh) {
+        if (threeMoveArrowsRef.current) {
+          const bbox = new THREE.Box3().setFromObject(mesh);
+          const size = bbox.getSize(new THREE.Vector3());
+          const axisLen = Math.max(2.2, size.length() * 0.55);
+          const axis = threeMoveArrowsRef.current.children[0] as THREE.Group | undefined;
+          if (axis) {
+            axis.scale.set(axisLen / 2.2, axisLen / 2.2, axisLen / 2.2);
+          }
+          threeMoveArrowsRef.current.position.copy(mesh.position);
+          threeMoveArrowsRef.current.rotation.copy(mesh.rotation);
+          threeMoveArrowsRef.current.visible = true;
+        }
+        if (threeResizeHandlesRef.current.length === 0) {
+          const box = new THREE.Box3().setFromBufferAttribute(
+            (mesh.geometry as THREE.BufferGeometry).attributes
+              .position as THREE.BufferAttribute,
+          );
+          const size = box.getSize(new THREE.Vector3());
+          const hx = Math.max(0.1, size.x * 0.5);
+          const hy = Math.max(0.1, size.y * 0.5);
+          const hz = Math.max(0.1, size.z * 0.5);
+          const defs: Array<{ axis: "x" | "y" | "z"; dir: 1 | -1; pos: [number, number, number]; color: number }> = [
+            { axis: "x", dir: 1, pos: [hx * 1.15, 0, 0], color: 0xff4d4d },
+            { axis: "x", dir: -1, pos: [-hx * 1.15, 0, 0], color: 0xff4d4d },
+            { axis: "y", dir: 1, pos: [0, hy * 1.15, 0], color: 0x4dff8a },
+            { axis: "y", dir: -1, pos: [0, -hy * 1.15, 0], color: 0x4dff8a },
+            { axis: "z", dir: 1, pos: [0, 0, hz * 1.15], color: 0x4da6ff },
+            { axis: "z", dir: -1, pos: [0, 0, -hz * 1.15], color: 0x4da6ff },
+          ];
+          defs.forEach((def) => {
+            const g = new THREE.SphereGeometry(
+              Math.max(0.12, Math.min(hx, hy, hz) * 0.2),
+              14,
+              14,
+            );
+            const m = new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: 0.95 });
+            const h = new THREE.Mesh(g, m);
+            h.position.set(def.pos[0], def.pos[1], def.pos[2]);
+            h.userData.isResizeHandle = true;
+            h.userData.axis = def.axis;
+            h.userData.direction = def.dir;
+            mesh.add(h);
+            threeResizeHandlesRef.current.push(h);
+          });
+        }
         const outlineGeo = new THREE.EdgesGeometry(mesh.geometry);
         const outlineMat = new THREE.LineBasicMaterial({
           color: 0xffff66,
@@ -1040,8 +2003,17 @@ function Viewport({
         }
         const p = mesh.position;
         threeControlsRef.current.target.set(p.x, p.y, p.z);
-        threeCameraRef.current.position.set(p.x + 8, p.y + 6, p.z + 8);
       }
+    } else {
+      if (threeMoveArrowsRef.current) {
+        threeMoveArrowsRef.current.visible = false;
+      }
+      threeResizeHandlesRef.current.forEach((h) => {
+        if (h.parent) h.parent.remove(h);
+        h.geometry.dispose();
+        (h.material as THREE.Material).dispose();
+      });
+      threeResizeHandlesRef.current = [];
     }
   }, [blankModelingMode, selectedModelElementId, hiddenModelElementIds]);
 
@@ -1155,6 +2127,14 @@ function Viewport({
 
       {/* Floating toolbar */}
       <div className="absolute top-3 right-3 flex flex-col gap-1 z-10">
+        {blankModelingMode && (
+          <button
+            className="w-8 h-8 backdrop-blur border border-white/10 rounded-lg flex items-center justify-center bg-blue-600/60 text-white"
+            title="Move selected element with axis arrows"
+          >
+            ↕
+          </button>
+        )}
         <button
           onClick={fitAll}
           className="w-8 h-8 bg-black/50 backdrop-blur border border-white/10 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-black/70 transition-all"
@@ -1200,6 +2180,16 @@ function Viewport({
           </button>
         </div>
       </div>
+      {blankModelingMode && (
+        <div className="absolute left-3 bottom-3 rounded bg-black/50 border border-white/10 px-2 py-1 text-[10px] text-white/70">
+          Click element center to move. Drag near edges/top/bottom to resize.
+        </div>
+      )}
+      {blankModelingMode && axisHint && (
+        <div className="absolute left-3 top-3 rounded bg-black/60 border border-white/10 px-2 py-1 text-[10px] text-white/80">
+          Axis {axisHint.axis.toUpperCase()} {axisHint.dragging ? `d${axisHint.axis.toUpperCase()}: ${axisHint.delta.toFixed(2)}m` : "selected"}
+        </div>
+      )}
     </div>
   );
 }
@@ -1219,12 +2209,7 @@ export default function ViewerPage() {
   const [explodeFactor, setExplodeFactor] = useState(0);
   const [blankModelingMode, setBlankModelingMode] = useState(false);
   const [modelElements, setModelElements] = useState<
-    Array<{
-      id: string;
-      type: string;
-      name?: string;
-      geometry?: { position?: [number, number, number] };
-    }>
+    ViewerModelElement[]
   >([]);
   const [hiddenModelElementIds, setHiddenModelElementIds] = useState<
     Set<string>
@@ -1232,6 +2217,9 @@ export default function ViewerPage() {
   const [selectedModelElementId, setSelectedModelElementId] = useState<
     string | null
   >(null);
+  const [previewModelElementUpdates, setPreviewModelElementUpdates] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
 
   // Floor filter state
   const [floorNames, setFloorNames] = useState<string[]>([]);
@@ -1273,7 +2261,21 @@ export default function ViewerPage() {
             Math.floor((elementCount - 1) / 6) * 2 - 5,
           ],
         },
-        parameters: { source: "top-model-toolbar" },
+        parameters:
+          type === "Wall"
+            ? {
+                source: "top-model-toolbar",
+                height: 3,
+                thickness: 0.23,
+              }
+            : type === "Door" || type === "Window" || type === "Opening"
+              ? {
+                  source: "top-model-toolbar",
+                  host_wall_id:
+                    modelElements.find((el) => el.type === "Wall")?.id || null,
+                  offset: 1.5,
+                }
+            : { source: "top-model-toolbar" },
       };
       const res = await fetch(
         `${apiUrl}/api/modeling/projects/${projectId}/elements`,
@@ -1303,6 +2305,7 @@ export default function ViewerPage() {
           "Model Element ID": el.id,
           Type: el.type,
           Position: JSON.stringify(el.geometry?.position || [0, 0, 0]),
+          ...(el.parameters || {}),
         },
       });
     },
@@ -1716,6 +2719,43 @@ export default function ViewerPage() {
   ]);
 
   const hasFloors = floorNames.length > 0;
+  const selectedModelElement =
+    modelElements.find((el) => el.id === selectedModelElementId) || null;
+
+  const updateModelElement = useCallback(
+    async (elementId: string, payload: Record<string, unknown>) => {
+      const res = await fetch(
+        `${apiUrl}/api/modeling/projects/${projectId}/elements/${elementId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (res.ok) {
+        await loadModelElements();
+      }
+    },
+    [apiUrl, projectId, loadModelElements],
+  );
+
+  const previewModelElement = useCallback(
+    (elementId: string, payload: Record<string, unknown>) => {
+      setPreviewModelElementUpdates((prev) => ({
+        ...prev,
+        [elementId]: payload,
+      }));
+    },
+    [],
+  );
+
+  const clearPreviewModelElement = useCallback((elementId: string) => {
+    setPreviewModelElementUpdates((prev) => {
+      const next = { ...prev };
+      delete next[elementId];
+      return next;
+    });
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-[#0d0e1a] text-white overflow-hidden">
@@ -1753,6 +2793,9 @@ export default function ViewerPage() {
             modelElements={modelElements}
             hiddenModelElementIds={hiddenModelElementIds}
             selectedModelElementId={selectedModelElementId}
+            onSelectModelElement={selectBlankElement}
+            onUpdateModelElement={updateModelElement}
+            previewModelElementUpdates={previewModelElementUpdates}
           />
           <BottomPanel />
         </div>
@@ -1760,6 +2803,10 @@ export default function ViewerPage() {
         <RightPanel
           projectId={projectId}
           onModelingChanged={loadModelElements}
+          selectedModelElement={selectedModelElement}
+          onUpdateModelElement={updateModelElement}
+          onPreviewModelElement={previewModelElement}
+          onClearPreviewModelElement={clearPreviewModelElement}
         />
       </div>
     </div>
