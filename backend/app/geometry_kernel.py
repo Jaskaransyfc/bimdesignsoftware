@@ -138,6 +138,7 @@ class GeometryKernelService:
         end = geometry.get("end") or parameters.get("end") or [3.0, 0.0, 0.0]
         height = float(parameters.get("height", 3.0))
         thickness = float(parameters.get("thickness", 0.2))
+        base_elevation = float(parameters.get("base_elevation", 0.0))
         dx = float(end[0]) - float(start[0])
         dz = float(end[2]) - float(start[2])
         length = max(0.1, math.hypot(dx, dz))
@@ -146,9 +147,9 @@ class GeometryKernelService:
         rotation_y = math.atan2(dz, dx)
         normalized_geometry = {
             **geometry,
-            "start": [float(start[0]), float(start[1]), float(start[2])],
-            "end": [float(end[0]), float(end[1]), float(end[2])],
-            "position": [mid_x, height * 0.5, mid_z],
+            "start": [float(start[0]), base_elevation, float(start[2])],
+            "end": [float(end[0]), base_elevation, float(end[2])],
+            "position": [mid_x, base_elevation + height * 0.5, mid_z],
             "rotationY": rotation_y,
         }
         normalized_parameters = {
@@ -158,6 +159,7 @@ class GeometryKernelService:
             "height": height,
             "thickness": thickness,
             "length": length,
+            "base_elevation": base_elevation,
         }
         return normalized_geometry, normalized_parameters
 

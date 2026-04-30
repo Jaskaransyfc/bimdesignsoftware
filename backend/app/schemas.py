@@ -131,3 +131,36 @@ class ModelElementOut(ModelElementBase):
 
     class Config:
         from_attributes = True
+
+
+class FamilyDefinitionBase(BaseModel):
+    family: str
+    category: str
+    schema: Dict[str, Any]
+    preview: Optional[Dict[str, Any]] = None
+
+
+class FamilyDefinitionCreate(FamilyDefinitionBase):
+    pass
+
+
+class FamilyDefinitionUpdate(BaseModel):
+    family: Optional[str] = None
+    category: Optional[str] = None
+    schema: Optional[Dict[str, Any]] = None
+    preview: Optional[Dict[str, Any]] = None
+
+
+class FamilyDefinitionOut(FamilyDefinitionBase):
+    id: str
+    project_id: str
+
+    class Config:
+        from_attributes = True
+
+
+class FamilyInstantiateRequest(BaseModel):
+    name: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+    geometry: Optional[Dict[str, Any]] = None
+    material_id: Optional[str] = None

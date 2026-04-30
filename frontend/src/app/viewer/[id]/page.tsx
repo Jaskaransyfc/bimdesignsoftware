@@ -554,6 +554,17 @@ function RightPanel({
   const [elementType, setElementType] = useState("Wall");
   const [elementMaterialId, setElementMaterialId] = useState("");
   const [materialName, setMaterialName] = useState("");
+  const [families, setFamilies] = useState<
+    Array<{
+      id: string;
+      family: string;
+      category: string;
+      schema: { type?: string; parameters?: Record<string, unknown> };
+    }>
+  >([]);
+  const [selectedFamilyId, setSelectedFamilyId] = useState("");
+  const [familyInstanceName, setFamilyInstanceName] = useState("");
+  const [familyParametersText, setFamilyParametersText] = useState("{}");
   const [paramWallStartX, setParamWallStartX] = useState("");
   const [paramWallStartZ, setParamWallStartZ] = useState("");
   const [paramWallEndX, setParamWallEndX] = useState("");
@@ -572,9 +583,10 @@ function RightPanel({
 
   const loadModelingData = useCallback(async () => {
     try {
-      const [materialRes, elementRes] = await Promise.all([
+      const [materialRes, elementRes, familyRes] = await Promise.all([
         fetch(`${apiUrl}/api/modeling/projects/${projectId}/materials`),
         fetch(`${apiUrl}/api/modeling/projects/${projectId}/elements`),
+        fetch(`${apiUrl}/api/modeling/projects/${projectId}/families`),
       ]);
       if (materialRes.ok) {
         setMaterials(await materialRes.json());
@@ -582,10 +594,20 @@ function RightPanel({
       if (elementRes.ok) {
         setModelElements(await elementRes.json());
       }
+      if (familyRes.ok) {
+        const data = await familyRes.json();
+        setFamilies(data);
+        if (!selectedFamilyId && data.length > 0) {
+          setSelectedFamilyId(data[0].id);
+          setFamilyParametersText(
+            JSON.stringify(data[0].schema?.parameters || {}, null, 2),
+          );
+        }
+      }
     } catch (err) {
       console.error("Failed to load modeling data", err);
     }
-  }, [apiUrl, projectId]);
+  }, [apiUrl, projectId, selectedFamilyId]);
 
   const createMaterial = async () => {
     if (!materialName.trim()) return;
@@ -639,6 +661,33 @@ function RightPanel({
       },
     );
     if (res.ok) {
+      await loadModelingData();
+      await onModelingChanged();
+    }
+  };
+
+  const instantiateFamily = async () => {
+    if (!selectedFamilyId) return;
+    let parsedParams: Record<string, unknown> = {};
+    try {
+      parsedParams = JSON.parse(familyParametersText || "{}");
+    } catch {
+      window.alert("Invalid Family Parameters JSON");
+      return;
+    }
+    const res = await fetch(
+      `${apiUrl}/api/modeling/projects/${projectId}/families/${selectedFamilyId}/instantiate`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: familyInstanceName.trim() || undefined,
+          parameters: parsedParams,
+        }),
+      },
+    );
+    if (res.ok) {
+      setFamilyInstanceName("");
       await loadModelingData();
       await onModelingChanged();
     }
@@ -876,6 +925,52 @@ function RightPanel({
             )}
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-white/40 uppercase tracking-wider">
+                Family / Component Library
+              </p>
+              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2 space-y-2">
+                <select
+                  value={selectedFamilyId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setSelectedFamilyId(nextId);
+                    const fam = families.find((f) => f.id === nextId);
+                    setFamilyParametersText(
+                      JSON.stringify(fam?.schema?.parameters || {}, null, 2),
+                    );
+                  }}
+                  className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white"
+                >
+                  {families.map((f) => (
+                    <option
+                      key={f.id}
+                      value={f.id}
+                      style={{ backgroundColor: "#0f1020", color: "#ffffff" }}
+                    >
+                      {f.family} ({f.category})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={familyInstanceName}
+                  onChange={(e) => setFamilyInstanceName(e.target.value)}
+                  placeholder="Instance name (optional)"
+                  className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                />
+                <textarea
+                  value={familyParametersText}
+                  onChange={(e) => setFamilyParametersText(e.target.value)}
+                  className="w-full min-h-24 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs font-mono"
+                />
+                <button
+                  onClick={instantiateFamily}
+                  className="w-full rounded bg-emerald-600/80 py-1.5 text-xs font-semibold hover:bg-emerald-600"
+                >
+                  Place Family Instance
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-wider">
                 Existing Elements ({modelElements.length})
               </p>
               <div className="space-y-1">
@@ -1029,13 +1124,7 @@ function Viewport({
   onExplodeChange: (val: number) => void;
   hasFloors: boolean;
   blankModelingMode: boolean;
-  modelElements: Array<{
-    id: string;
-    type: string;
-    name?: string;
-    geometry?: { position?: [number, number, number]; rotationY?: number; start?: XYZ; end?: XYZ };
-    parameters?: Record<string, any>;
-  }>;
+  modelElements: ViewerModelElement[];
   hiddenModelElementIds: Set<string>;
   selectedModelElementId: string | null;
   onSelectModelElement: (elementId: string) => void;
@@ -1073,6 +1162,10 @@ function Viewport({
     startClientX: number;
     startClientY: number;
     startScale: THREE.Vector3;
+    axisDir: THREE.Vector3;
+    axisOrigin: THREE.Vector3;
+    startPoint: THREE.Vector3;
+    baseScaleAxis: number;
   }>({
     active: false,
     elementId: null,
@@ -1081,6 +1174,10 @@ function Viewport({
     startClientX: 0,
     startClientY: 0,
     startScale: new THREE.Vector3(1, 1, 1),
+    axisDir: new THREE.Vector3(1, 0, 0),
+    axisOrigin: new THREE.Vector3(),
+    startPoint: new THREE.Vector3(),
+    baseScaleAxis: 1,
   });
   const axisDragRef = useRef<{
     active: boolean;
@@ -1252,8 +1349,10 @@ function Viewport({
       parameters?: Record<string, unknown>;
     }) => {
       const preview = previewModelElementUpdates[el.id] || {};
-      const previewGeometry = (preview.geometry as Record<string, unknown>) || {};
-      const previewParams = (preview.parameters as Record<string, unknown>) || {};
+      const previewGeometry =
+        (preview.geometry as Record<string, unknown>) || {};
+      const previewParams =
+        (preview.parameters as Record<string, unknown>) || {};
       const mergedGeometry = { ...(el.geometry || {}), ...previewGeometry } as {
         position?: [number, number, number];
         rotationY?: number;
@@ -1271,7 +1370,7 @@ function Viewport({
           let wallLen = Number(p.length ?? 3);
           let wallRot = Number(mergedGeometry.rotationY ?? 0);
           if (ws && we) {
-            const dx = we[0] - ws[0];
+          const dx = we[0] - ws[0];
             const dz = we[2] - ws[2];
             wallLen = Math.max(0.1, Math.hypot(dx, dz));
             wallRot = Math.atan2(dz, dx);
@@ -1380,12 +1479,12 @@ function Viewport({
         pos: [number, number, number];
         color: number;
       }> = [
-        { axis: "x", dir: 1, pos: [hx * 1.15, 0, 0], color: 0xff4d4d },
-        { axis: "x", dir: -1, pos: [-hx * 1.15, 0, 0], color: 0xff4d4d },
-        { axis: "y", dir: 1, pos: [0, hy * 1.15, 0], color: 0x4dff8a },
-        { axis: "y", dir: -1, pos: [0, -hy * 1.15, 0], color: 0x4dff8a },
-        { axis: "z", dir: 1, pos: [0, 0, hz * 1.15], color: 0x4da6ff },
-        { axis: "z", dir: -1, pos: [0, 0, -hz * 1.15], color: 0x4da6ff },
+        { axis: "x", dir: 1, pos: [hx * 1.03, 0, 0], color: 0xff4d4d },
+        { axis: "x", dir: -1, pos: [-hx * 1.03, 0, 0], color: 0xff4d4d },
+        { axis: "y", dir: 1, pos: [0, hy * 1.03, 0], color: 0x4dff8a },
+        { axis: "y", dir: -1, pos: [0, -hy * 1.03, 0], color: 0x4dff8a },
+        { axis: "z", dir: 1, pos: [0, 0, hz * 1.03], color: 0x4da6ff },
+        { axis: "z", dir: -1, pos: [0, 0, -hz * 1.03], color: 0x4da6ff },
       ];
       defs.forEach((def) => {
         const g = new THREE.SphereGeometry(
@@ -1457,7 +1556,7 @@ function Viewport({
       threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
       const axisObjects: THREE.Object3D[] = [];
-      threeMoveArrowsRef.current.traverse((obj) => {
+      threeMoveArrowsRef.current.traverse((obj: THREE.Object3D) => {
         if (obj.userData?.isAxisHandle) axisObjects.push(obj);
       });
       const hits = threeRaycasterRef.current.intersectObjects(axisObjects, true);
@@ -1488,19 +1587,6 @@ function Viewport({
     };
 
     const onPointerMove = (event: PointerEvent) => {
-      const axisHandle = pickAxisHandleFromPointer(event);
-      if (axisHandle) {
-        const axis = axisHandle.userData.axis as "x" | "y" | "z";
-        if (threeMoveArrowsRef.current) {
-          showAxisGuide(axis, threeMoveArrowsRef.current.position);
-        }
-        if (!axisDragRef.current.active) {
-          setAxisHint({ axis, delta: 0, dragging: false });
-        }
-        const hostEl = threeHostRef.current;
-        if (hostEl) hostEl.style.cursor = "grab";
-        return;
-      }
       const handle = pickResizeHandleFromPointer(event);
       if (handle) {
         const axis = handle.userData.axis as "x" | "y" | "z";
@@ -1512,6 +1598,19 @@ function Viewport({
           const mat = h.material as THREE.MeshBasicMaterial;
           mat.opacity = h === handle ? 1 : 0.75;
         });
+        return;
+      }
+      const axisHandle = pickAxisHandleFromPointer(event);
+      if (axisHandle) {
+        const axis = axisHandle.userData.axis as "x" | "y" | "z";
+        if (threeMoveArrowsRef.current) {
+          showAxisGuide(axis, threeMoveArrowsRef.current.position);
+        }
+        if (!axisDragRef.current.active) {
+          setAxisHint({ axis, delta: 0, dragging: false });
+        }
+        const hostEl = threeHostRef.current;
+        if (hostEl) hostEl.style.cursor = "grab";
         return;
       }
       if (threeAxisGuideRef.current && !axisDragRef.current.active) {
@@ -1543,6 +1642,71 @@ function Viewport({
     };
 
     const onPointerDown = (event: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
+      const meshes = Array.from(threeMeshMapRef.current.values()).filter(
+        (m) => m.visible,
+      );
+      const hits = threeRaycasterRef.current.intersectObjects(meshes, false);
+      const hit = hits[0];
+      const mesh = hit?.object as THREE.Mesh | undefined;
+      const id = mesh?.userData.elementId as string | undefined;
+
+      // Always allow switching to another element even if gizmos are in front.
+      if (id && selectedModelElementId && id !== selectedModelElementId) {
+        onSelectModelElement(id);
+        return;
+      }
+
+      // Resize handles have priority for the currently selected element.
+      const handle = pickResizeHandleFromPointer(event);
+      if (handle && selectedModelElementId) {
+        const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
+        if (selectedMesh) {
+          const axis = handle.userData.axis as "x" | "y" | "z";
+          const axisDirLocal =
+            axis === "x"
+              ? new THREE.Vector3(1, 0, 0)
+              : axis === "y"
+                ? new THREE.Vector3(0, 1, 0)
+                : new THREE.Vector3(0, 0, 1);
+          const axisDir = axisDirLocal
+            .clone()
+            .applyQuaternion(selectedMesh.quaternion)
+            .normalize();
+          const origin = selectedMesh.position.clone();
+          const segA = origin.clone().addScaledVector(axisDir, -1000);
+          const segB = origin.clone().addScaledVector(axisDir, 1000);
+          const pOnRay = new THREE.Vector3();
+          const pOnSeg = new THREE.Vector3();
+          threeRaycasterRef.current.ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
+          const baseScaleAxis =
+            axis === "x"
+              ? selectedMesh.scale.x
+              : axis === "y"
+                ? selectedMesh.scale.y
+                : selectedMesh.scale.z;
+          resizeDragRef.current = {
+            active: true,
+            elementId: selectedModelElementId,
+            axis,
+            direction: (handle.userData.direction as 1 | -1) || 1,
+            startClientX: event.clientX,
+            startClientY: event.clientY,
+            startScale: selectedMesh.scale.clone(),
+            axisDir,
+            axisOrigin: origin,
+            startPoint: pOnSeg.clone(),
+            baseScaleAxis,
+          };
+          controls.enabled = false;
+          return;
+        }
+      }
+
+      // Axis drag starts when clicking axis handles.
       const axisHandle = pickAxisHandleFromPointer(event);
       if (axisHandle && selectedModelElementId) {
         const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
@@ -1563,10 +1727,6 @@ function Viewport({
           const pOnSeg = new THREE.Vector3();
           const segA = origin.clone().addScaledVector(axisDir, -1000);
           const segB = origin.clone().addScaledVector(axisDir, 1000);
-          const rect = renderer.domElement.getBoundingClientRect();
-          threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-          threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-          threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
           threeRaycasterRef.current.ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
           axisDragRef.current = {
             active: true,
@@ -1583,46 +1743,25 @@ function Viewport({
           return;
         }
       }
-      const handle = pickResizeHandleFromPointer(event);
-      if (handle && selectedModelElementId) {
+
+      // Click selected element body: always free-move.
+      // Resizing is handled only via explicit resize handles.
+      if (id && id === selectedModelElementId) {
         const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
         if (selectedMesh) {
-          resizeDragRef.current = {
+          freeMoveDragRef.current = {
             active: true,
             elementId: selectedModelElementId,
-            axis: handle.userData.axis as "x" | "y" | "z",
-            direction: (handle.userData.direction as 1 | -1) || 1,
-            startClientX: event.clientX,
-            startClientY: event.clientY,
-            startScale: selectedMesh.scale.clone(),
+            y: selectedMesh.position.y,
           };
           controls.enabled = false;
           return;
         }
       }
-      const rect = renderer.domElement.getBoundingClientRect();
-      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-      threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
-      const meshes = Array.from(threeMeshMapRef.current.values()).filter(
-        (m) => m.visible,
-      );
-      const hits = threeRaycasterRef.current.intersectObjects(meshes, false);
-      const mesh = hits[0]?.object as THREE.Mesh | undefined;
-      const id = mesh?.userData.elementId as string | undefined;
+
+      // Select element when not yet selected.
       if (id) {
         onSelectModelElement(id);
-        if (id === selectedModelElementId) {
-          const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
-          if (selectedMesh) {
-            freeMoveDragRef.current = {
-              active: true,
-              elementId: selectedModelElementId,
-              y: selectedMesh.position.y,
-            };
-            controls.enabled = false;
-          }
-        }
       }
     };
 
@@ -1776,21 +1915,28 @@ function Viewport({
       if (!id) return;
       const mesh = threeMeshMapRef.current.get(id);
       if (!mesh) return;
-      const dx = event.clientX - resizeDragRef.current.startClientX;
-      const dy = event.clientY - resizeDragRef.current.startClientY;
-      let delta = 0;
-      if (resizeDragRef.current.axis === "x") {
-        delta = dx * 0.0035 * resizeDragRef.current.direction;
-      } else if (resizeDragRef.current.axis === "y") {
-        delta = -dy * 0.0035 * resizeDragRef.current.direction;
-      } else {
-        delta = dx * 0.0035 * resizeDragRef.current.direction;
-      }
-      const scale = Math.max(0.2, 1 + delta);
-      const base = resizeDragRef.current.startScale;
-      if (resizeDragRef.current.axis === "x") mesh.scale.x = base.x * scale;
-      if (resizeDragRef.current.axis === "y") mesh.scale.y = base.y * scale;
-      if (resizeDragRef.current.axis === "z") mesh.scale.z = base.z * scale;
+      const rect = renderer.domElement.getBoundingClientRect();
+      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
+      const pOnRay = new THREE.Vector3();
+      const pOnSeg = new THREE.Vector3();
+      const segA = resizeDragRef.current.axisOrigin
+        .clone()
+        .addScaledVector(resizeDragRef.current.axisDir, -1000);
+      const segB = resizeDragRef.current.axisOrigin
+        .clone()
+        .addScaledVector(resizeDragRef.current.axisDir, 1000);
+      threeRaycasterRef.current.ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
+      const deltaVec = pOnSeg.clone().sub(resizeDragRef.current.startPoint);
+      const dist = deltaVec.dot(resizeDragRef.current.axisDir);
+      const nextScaleAxis = Math.max(
+        0.2,
+        resizeDragRef.current.baseScaleAxis + dist * 0.15 * resizeDragRef.current.direction,
+      );
+      if (resizeDragRef.current.axis === "x") mesh.scale.x = nextScaleAxis;
+      if (resizeDragRef.current.axis === "y") mesh.scale.y = nextScaleAxis;
+      if (resizeDragRef.current.axis === "z") mesh.scale.z = nextScaleAxis;
     };
     const onAxisDrag = (event: PointerEvent) => {
       if (!axisDragRef.current.active) return;
@@ -1965,12 +2111,12 @@ function Viewport({
           const hy = Math.max(0.1, size.y * 0.5);
           const hz = Math.max(0.1, size.z * 0.5);
           const defs: Array<{ axis: "x" | "y" | "z"; dir: 1 | -1; pos: [number, number, number]; color: number }> = [
-            { axis: "x", dir: 1, pos: [hx * 1.15, 0, 0], color: 0xff4d4d },
-            { axis: "x", dir: -1, pos: [-hx * 1.15, 0, 0], color: 0xff4d4d },
-            { axis: "y", dir: 1, pos: [0, hy * 1.15, 0], color: 0x4dff8a },
-            { axis: "y", dir: -1, pos: [0, -hy * 1.15, 0], color: 0x4dff8a },
-            { axis: "z", dir: 1, pos: [0, 0, hz * 1.15], color: 0x4da6ff },
-            { axis: "z", dir: -1, pos: [0, 0, -hz * 1.15], color: 0x4da6ff },
+            { axis: "x", dir: 1, pos: [hx * 1.03, 0, 0], color: 0xff4d4d },
+            { axis: "x", dir: -1, pos: [-hx * 1.03, 0, 0], color: 0xff4d4d },
+            { axis: "y", dir: 1, pos: [0, hy * 1.03, 0], color: 0x4dff8a },
+            { axis: "y", dir: -1, pos: [0, -hy * 1.03, 0], color: 0x4dff8a },
+            { axis: "z", dir: 1, pos: [0, 0, hz * 1.03], color: 0x4da6ff },
+            { axis: "z", dir: -1, pos: [0, 0, -hz * 1.03], color: 0x4da6ff },
           ];
           defs.forEach((def) => {
             const g = new THREE.SphereGeometry(
