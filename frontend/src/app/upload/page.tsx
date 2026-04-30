@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Trash2, UploadCloud, ArrowLeft, CheckCircle2, FileWarning } from 'lucide-react';
+import { Plus, Trash2, UploadCloud, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 interface TeamMember {
   name: string;
@@ -110,6 +110,48 @@ export default function UploadPage() {
     } catch {
       alert('Network error – is the backend running on port 8000?');
       setStatusMessage('Connection error.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleCreateBlankProject = async () => {
+    if (!name) return;
+    setUploading(true);
+    setStatusMessage("Creating blank project...");
+    const validTeam = team.filter((m) => m.name || m.email);
+    if (!validTeam.some((m) => m.email === currentUserEmail)) {
+      validTeam.unshift({
+        name: currentUserName || "Project Owner",
+        email: currentUserEmail,
+      });
+    }
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+    const cleanUrl = apiUrl.endsWith("/") ? apiUrl.slice(0, -1) : apiUrl;
+
+    try {
+      const res = await fetch(`${cleanUrl}/api/projects/blank`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          client_name: client || null,
+          location: location || null,
+          team_members: validTeam.length > 0 ? validTeam : null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Unknown error" }));
+        alert(`Could not create blank project: ${err.detail || "Server error"}`);
+        setStatusMessage("Blank project creation failed.");
+        return;
+      }
+      setStatusMessage("Blank project ready. Redirecting...");
+      setTimeout(() => router.push("/"), 800);
+    } catch {
+      alert("Network error - is the backend running on port 8000?");
+      setStatusMessage("Connection error.");
     } finally {
       setUploading(false);
     }
@@ -263,6 +305,14 @@ export default function UploadPage() {
               className="w-full bg-blue-600 disabled:bg-white/5 disabled:text-white/20 py-4 rounded-2xl font-bold text-sm uppercase tracking-wider transition-all hover:bg-blue-500 hover:shadow-lg hover:shadow-blue-600/20 active:scale-[0.99]"
             >
               {uploading ? 'Creating Project…' : 'Initialize Project'}
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateBlankProject}
+              disabled={uploading || !name}
+              className="w-full bg-white/10 disabled:bg-white/5 disabled:text-white/20 py-4 rounded-2xl font-bold text-sm uppercase tracking-wider transition-all hover:bg-white/15"
+            >
+              Create Blank Project (Start Modeling)
             </button>
           </form>
         </div>

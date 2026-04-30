@@ -10,6 +10,8 @@ import {
   AmbientLight,
   DirLight,
 } from "@xeokit/xeokit-sdk";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useViewerStore } from "@/stores/viewerStore";
 import type { SelectedElement } from "@/stores/viewerStore";
 import {
@@ -42,6 +44,19 @@ import {
   Filter,
 } from "lucide-react";
 
+const MODEL_ELEMENT_TYPES = [
+  "Wall",
+  "Slab",
+  "Column",
+  "Beam",
+  "Door",
+  "Window",
+  "Opening",
+  "Room",
+  "Grid",
+  "Level",
+];
+
 // ─────────────────────────────────────────
 // RIBBON
 // ─────────────────────────────────────────
@@ -50,11 +65,15 @@ function Ribbon({
   selectedFloor,
   onFloorChange,
   hasFloors,
+  onQuickCreate,
+  modelingEnabled,
 }: {
   floorNames: string[];
   selectedFloor: string;
   onFloorChange: (floor: string) => void;
   hasFloors: boolean;
+  onQuickCreate: (type: string) => void;
+  modelingEnabled: boolean;
 }) {
   const {
     activeRibbonTab,
@@ -66,7 +85,8 @@ function Ribbon({
     rightPanelOpen,
     bottomPanelOpen,
   } = useViewerStore();
-  const tabs = ["Home", "View", "Analyze"];
+  const tabs = ["Home", "View", "Analyze", "Model"];
+  const modelingTools = ["Wall", "Slab", "Column", "Beam", "Door", "Window", "Opening", "Room", "Grid", "Level"];
 
   const handleTabClick = (tab: string) => {
     setActiveRibbonTab(tab);
@@ -109,6 +129,29 @@ function Ribbon({
           {tab}
         </button>
       ))}
+
+      {activeRibbonTab === "Model" && modelingEnabled && (
+        <>
+          <div className="w-px h-5 bg-white/10 mx-1" />
+          <div className="flex items-center gap-1">
+            {modelingTools.map((tool) => (
+              <button
+                key={tool}
+                onClick={() => onQuickCreate(tool)}
+                className="px-2 py-1 rounded text-[9px] font-bold uppercase tracking-wider text-white/60 hover:text-white hover:bg-blue-600/20 transition-all"
+                title={`Create ${tool}`}
+              >
+                {tool}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {activeRibbonTab === "Model" && !modelingEnabled && (
+        <span className="text-[10px] text-amber-300/80 ml-2">
+          Model tools work in blank modeling projects only.
+        </span>
+      )}
 
       {/* Floor Filter – only for IFC models */}
       {hasFloors && (
@@ -188,11 +231,17 @@ function LeftPanel({
   allElements,
   viewerRef,
   projectId,
+  blankModelingMode,
+  onSelectBlankElement,
+  onToggleBlankVisibility,
 }: {
   hierarchy: any;
   allElements: any[];
   viewerRef: React.MutableRefObject<Viewer | null>;
   projectId: string;
+  blankModelingMode: boolean;
+  onSelectBlankElement: (elementId: string) => void;
+  onToggleBlankVisibility: (ids: string[], visible: boolean) => void;
 }) {
   const { leftPanelOpen, groupMode, setGroupMode, setSelectedElement } =
     useViewerStore();
@@ -201,7 +250,7 @@ function LeftPanel({
   const [hiddenNodes, setHiddenNodes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (hierarchy) setExpandedNodes(new Set([hierarchy.id]));
+    if (hierarchy?.id) setExpandedNodes(new Set([hierarchy.id]));
   }, [hierarchy]);
 
   const buildTypeTree = useCallback((elements: any[]) => {
@@ -230,9 +279,28 @@ function LeftPanel({
   }, []);
 
   const setNodeVisibility = (node: any, visible: boolean) => {
+    if (!node) return;
+    const collectIds = (n: any, bucket: string[]) => {
+      if (!n || !n.id) return;
+      bucket.push(n.id);
+      n.children.forEach((c: any) => collectIds(c, bucket));
+    };
+    const ids: string[] = [];
+    collectIds(node, ids);
+    if (blankModelingMode) {
+      onToggleBlankVisibility(ids, visible);
+      const newHidden = new Set(hiddenNodes);
+      ids.forEach((id) => {
+        if (visible) newHidden.delete(id);
+        else newHidden.add(id);
+      });
+      setHiddenNodes(newHidden);
+      return;
+    }
     if (!viewerRef.current) return;
     const newHidden = new Set(hiddenNodes);
     const walk = (n: any) => {
+      if (!n || !n.id) return;
       if (visible) newHidden.delete(n.id);
       else newHidden.add(n.id);
       const ent = viewerRef.current?.scene.objects[n.id];
@@ -244,8 +312,29 @@ function LeftPanel({
   };
 
   const selectNode = async (node: any) => {
+    if (!node || !node.id) return;
+    if (blankModelingMode) {
+      if (!node.children || node.children.length === 0) {
+        onSelectBlankElement(node.id);
+      } else {
+        const s = new Set(expandedNodes);
+        if (s.has(node.id)) s.delete(node.id);
+        else s.add(node.id);
+        setExpandedNodes(s);
+      }
+      return;
+    }
     if (!viewerRef.current) return;
     const ent = viewerRef.current.scene.objects[node.id];
+    if (!ent) {
+      if (node.children?.length > 0) {
+        const s = new Set(expandedNodes);
+        if (s.has(node.id)) s.delete(node.id);
+        else s.add(node.id);
+        setExpandedNodes(s);
+      }
+      return;
+    }
     if (ent) {
       viewerRef.current.scene.setObjectsSelected(
         viewerRef.current.scene.selectedObjectIds,
@@ -282,7 +371,7 @@ function LeftPanel({
   };
 
   const renderNode = (node: any): React.ReactNode => {
-    if (!node) return null;
+    if (!node || !node.id) return null;
     const matchesSearch = node.name
       ?.toLowerCase()
       .includes(searchQuery.toLowerCase());
@@ -344,7 +433,10 @@ function LeftPanel({
             )}
           </button>
         </div>
-        {expanded && node.children?.map((c: any) => renderNode(c))}
+        {expanded &&
+          node.children
+            ?.map((c: any) => renderNode(c))
+            .filter(Boolean)}
       </div>
     );
   };
@@ -404,21 +496,120 @@ function LeftPanel({
 // ─────────────────────────────────────────
 // RIGHT PANEL – Properties
 // ─────────────────────────────────────────
-function RightPanel() {
+function RightPanel({
+  projectId,
+  onModelingChanged,
+}: {
+  projectId: string;
+  onModelingChanged: () => Promise<void>;
+}) {
   const { rightPanelOpen, selectedElement } = useViewerStore();
+  const [panelTab, setPanelTab] = useState<"properties" | "modeling">("properties");
+  const [materials, setMaterials] = useState<Array<{ id: string; name: string }>>([]);
+  const [modelElements, setModelElements] = useState<Array<{ id: string; name?: string; type: string }>>([]);
+  const [elementName, setElementName] = useState("");
+  const [elementType, setElementType] = useState("Wall");
+  const [elementMaterialId, setElementMaterialId] = useState("");
+  const [materialName, setMaterialName] = useState("");
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+  const loadModelingData = useCallback(async () => {
+    try {
+      const [materialRes, elementRes] = await Promise.all([
+        fetch(`${apiUrl}/api/modeling/projects/${projectId}/materials`),
+        fetch(`${apiUrl}/api/modeling/projects/${projectId}/elements`),
+      ]);
+      if (materialRes.ok) {
+        setMaterials(await materialRes.json());
+      }
+      if (elementRes.ok) {
+        setModelElements(await elementRes.json());
+      }
+    } catch (err) {
+      console.error("Failed to load modeling data", err);
+    }
+  }, [apiUrl, projectId]);
+
+  const createMaterial = async () => {
+    if (!materialName.trim()) return;
+    const res = await fetch(`${apiUrl}/api/modeling/projects/${projectId}/materials`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: materialName.trim() }),
+    });
+    if (res.ok) {
+      setMaterialName("");
+      await loadModelingData();
+      await onModelingChanged();
+    }
+  };
+
+  const createElement = async () => {
+    if (!elementName.trim()) return;
+    const payload: Record<string, unknown> = {
+      name: elementName.trim(),
+      type: elementType,
+      parameters: { source: "viewer-panel" },
+    };
+    if (elementMaterialId) payload.material_id = elementMaterialId;
+    const res = await fetch(`${apiUrl}/api/modeling/projects/${projectId}/elements`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      setElementName("");
+      await loadModelingData();
+      await onModelingChanged();
+    }
+  };
+
+  const renameElement = async (elementId: string, name: string) => {
+    const newName = window.prompt("Update element name", name);
+    if (!newName || newName === name) return;
+    const res = await fetch(
+      `${apiUrl}/api/modeling/projects/${projectId}/elements/${elementId}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      },
+    );
+    if (res.ok) {
+      await loadModelingData();
+      await onModelingChanged();
+    }
+  };
 
   if (!rightPanelOpen) return null;
 
   return (
     <div className="w-[320px] bg-[#0d0e1a] border-l border-white/5 flex flex-col flex-shrink-0">
       <div className="px-4 py-3 border-b border-white/5 bg-[#0f1020]">
-        <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
-          Properties
-        </h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setPanelTab("properties")}
+            className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${panelTab === "properties" ? "bg-blue-600/20 text-blue-400" : "text-white/40"}`}
+          >
+            Properties
+          </button>
+          <button
+            onClick={async () => {
+              setPanelTab("modeling");
+              if (rightPanelOpen) {
+                await loadModelingData();
+              }
+            }}
+            className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${panelTab === "modeling" ? "bg-blue-600/20 text-blue-400" : "text-white/40"}`}
+          >
+            Modeling
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
-        {selectedElement ? (
+        {panelTab === "properties" && selectedElement ? (
           <div className="space-y-4">
             <div className="bg-white/5 rounded-xl p-4 border border-white/5 space-y-3">
               <div>
@@ -476,12 +667,96 @@ function RightPanel() {
               )}
             </div>
           </div>
-        ) : (
+        ) : panelTab === "properties" ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-6 text-white/15">
             <Box className="w-10 h-10 mb-3" />
             <p className="text-xs font-medium">
               Select an element in the 3D view or tree
             </p>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="space-y-2 border border-white/10 rounded-lg p-3">
+              <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">
+                Add Material
+              </p>
+              <input
+                value={materialName}
+                onChange={(e) => setMaterialName(e.target.value)}
+                placeholder="Fly Ash Brick"
+                className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs outline-none"
+              />
+              <button
+                onClick={createMaterial}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 rounded px-2 py-1.5 text-xs font-bold"
+              >
+                Create Material
+              </button>
+            </div>
+
+            <div className="space-y-2 border border-white/10 rounded-lg p-3">
+              <p className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">
+                Add Model Element
+              </p>
+              <input
+                value={elementName}
+                onChange={(e) => setElementName(e.target.value)}
+                placeholder="Wall_001"
+                className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs outline-none"
+              />
+              <select
+                value={elementType}
+                onChange={(e) => setElementType(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs outline-none"
+              >
+                {MODEL_ELEMENT_TYPES.map((t) => (
+                  <option key={t} value={t} className="bg-[#0d0e1a]">
+                    {t}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={elementMaterialId}
+                onChange={(e) => setElementMaterialId(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs outline-none"
+              >
+                <option value="" className="bg-[#0d0e1a]">
+                  No material
+                </option>
+                {materials.map((m) => (
+                  <option key={m.id} value={m.id} className="bg-[#0d0e1a]">
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={createElement}
+                className="w-full bg-blue-600 hover:bg-blue-500 rounded px-2 py-1.5 text-xs font-bold"
+              >
+                Create Element
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-wider">
+                Existing Elements ({modelElements.length})
+              </p>
+              <div className="space-y-1">
+                {modelElements.map((element) => (
+                  <button
+                    key={element.id}
+                    onClick={() => renameElement(element.id, element.name || "")}
+                    className="w-full text-left bg-white/5 hover:bg-white/10 border border-white/5 rounded px-2 py-2"
+                  >
+                    <div className="text-xs font-semibold">{element.name || "Unnamed"}</div>
+                    <div className="text-[10px] text-white/40">{element.type}</div>
+                  </button>
+                ))}
+                {modelElements.length === 0 && (
+                  <p className="text-xs text-white/30 italic">No model elements yet.</p>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -594,6 +869,10 @@ function Viewport({
   explodeFactor,
   onExplodeChange,
   hasFloors,
+  blankModelingMode,
+  modelElements,
+  hiddenModelElementIds,
+  selectedModelElementId,
 }: {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   viewerRef: React.MutableRefObject<Viewer | null>;
@@ -601,14 +880,230 @@ function Viewport({
   explodeFactor: number;
   onExplodeChange: (val: number) => void;
   hasFloors: boolean;
+  blankModelingMode: boolean;
+  modelElements: Array<{
+    id: string;
+    type: string;
+    name?: string;
+    geometry?: { position?: [number, number, number] };
+  }>;
+  hiddenModelElementIds: Set<string>;
+  selectedModelElementId: string | null;
 }) {
+  const threeHostRef = useRef<HTMLDivElement>(null);
+  const threeCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const threeSceneRef = useRef<THREE.Scene | null>(null);
+  const threeControlsRef = useRef<OrbitControls | null>(null);
+  const threeMeshMapRef = useRef<Map<string, THREE.Mesh>>(new Map());
+  const threeXrayRef = useRef(false);
+  const threeSelectionOutlineRef = useRef<THREE.LineSegments | null>(null);
+
+  useEffect(() => {
+    if (!blankModelingMode || !threeHostRef.current) return;
+
+    const host = threeHostRef.current;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b1020);
+
+    const camera = new THREE.PerspectiveCamera(
+      60,
+      host.clientWidth / Math.max(host.clientHeight, 1),
+      0.1,
+      5000,
+    );
+    camera.position.set(20, 20, 20);
+    threeCameraRef.current = camera;
+    threeSceneRef.current = scene;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(host.clientWidth, host.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    host.innerHTML = "";
+    host.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 0, 0);
+    threeControlsRef.current = controls;
+
+    scene.add(new THREE.GridHelper(200, 100, 0x2b5bd7, 0x1f2a44));
+    scene.add(new THREE.AxesHelper(5));
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x222233, 0.9);
+    scene.add(hemi);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(10, 30, 20);
+    scene.add(dir);
+
+    const colorForType = (type: string) => {
+      const map: Record<string, number> = {
+        Wall: 0x6ea8fe,
+        Slab: 0x8d99ae,
+        Column: 0x64dfdf,
+        Beam: 0x4895ef,
+        Door: 0xffbe0b,
+        Window: 0x90e0ef,
+        Opening: 0xf4a261,
+        Room: 0xadb5bd,
+        Grid: 0x4cc9f0,
+        Level: 0xb5179e,
+      };
+      return map[type] || 0xcccccc;
+    };
+
+    const addElementMesh = (el: {
+      id: string;
+      type: string;
+      geometry?: { position?: [number, number, number] };
+    }) => {
+      const pos = el.geometry?.position || [0, 0, 0];
+      let geometry: THREE.BufferGeometry;
+
+      if (el.type === "Column") geometry = new THREE.BoxGeometry(0.4, 3, 0.4);
+      else if (el.type === "Slab") geometry = new THREE.BoxGeometry(4, 0.3, 4);
+      else if (el.type === "Beam") geometry = new THREE.BoxGeometry(3, 0.35, 0.35);
+      else if (el.type === "Door") geometry = new THREE.BoxGeometry(1, 2.1, 0.12);
+      else if (el.type === "Window") geometry = new THREE.BoxGeometry(1.2, 1.2, 0.12);
+      else if (el.type === "Room") geometry = new THREE.BoxGeometry(4, 2.7, 4);
+      else if (el.type === "Grid") geometry = new THREE.BoxGeometry(0.05, 0.05, 5);
+      else if (el.type === "Level") geometry = new THREE.BoxGeometry(5, 0.05, 0.05);
+      else geometry = new THREE.BoxGeometry(3, 3, 0.23); // Wall/default
+
+      const material = new THREE.MeshStandardMaterial({
+        color: colorForType(el.type),
+        metalness: 0.1,
+        roughness: 0.75,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(pos[0], pos[1], pos[2]);
+      mesh.userData.basePosition = [...pos];
+      mesh.userData.elementId = el.id;
+      mesh.visible = !hiddenModelElementIds.has(el.id);
+      scene.add(mesh);
+      threeMeshMapRef.current.set(el.id, mesh);
+    };
+
+    threeMeshMapRef.current.clear();
+    modelElements.forEach(addElementMesh);
+
+    let raf = 0;
+    const animate = () => {
+      controls.update();
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(animate);
+    };
+    animate();
+
+    const onResize = () => {
+      const width = host.clientWidth;
+      const height = host.clientHeight;
+      camera.aspect = width / Math.max(height, 1);
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+    };
+    window.addEventListener("resize", onResize);
+    const resizeObserver = new ResizeObserver(onResize);
+    resizeObserver.observe(host);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+      resizeObserver.disconnect();
+      if (threeSelectionOutlineRef.current) {
+        scene.remove(threeSelectionOutlineRef.current);
+        const mat = threeSelectionOutlineRef.current.material as THREE.Material;
+        mat.dispose();
+        threeSelectionOutlineRef.current.geometry.dispose();
+        threeSelectionOutlineRef.current = null;
+      }
+      controls.dispose();
+      renderer.dispose();
+      host.innerHTML = "";
+      threeMeshMapRef.current.clear();
+      threeControlsRef.current = null;
+      threeCameraRef.current = null;
+      threeSceneRef.current = null;
+    };
+  }, [blankModelingMode, modelElements, hiddenModelElementIds]);
+
+  useEffect(() => {
+    if (!blankModelingMode) return;
+    threeMeshMapRef.current.forEach((mesh, id) => {
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      if (id === selectedModelElementId) {
+        mat.emissive = new THREE.Color(0x3344aa);
+        mat.emissiveIntensity = 0.8;
+      } else {
+        mat.emissive = new THREE.Color(0x000000);
+        mat.emissiveIntensity = 0;
+      }
+      mesh.visible = !hiddenModelElementIds.has(id);
+    });
+    if (threeSelectionOutlineRef.current && threeSceneRef.current) {
+      threeSceneRef.current.remove(threeSelectionOutlineRef.current);
+      const mat = threeSelectionOutlineRef.current.material as THREE.Material;
+      mat.dispose();
+      threeSelectionOutlineRef.current.geometry.dispose();
+      threeSelectionOutlineRef.current = null;
+    }
+    if (selectedModelElementId && threeCameraRef.current && threeControlsRef.current) {
+      const mesh = threeMeshMapRef.current.get(selectedModelElementId);
+      if (mesh) {
+        const outlineGeo = new THREE.EdgesGeometry(mesh.geometry);
+        const outlineMat = new THREE.LineBasicMaterial({ color: 0xffff66, linewidth: 2 });
+        const outline = new THREE.LineSegments(outlineGeo, outlineMat);
+        outline.position.copy(mesh.position);
+        outline.rotation.copy(mesh.rotation);
+        outline.scale.copy(mesh.scale.clone().multiplyScalar(1.02));
+        if (threeSceneRef.current) {
+          threeSceneRef.current.add(outline);
+          threeSelectionOutlineRef.current = outline;
+        }
+        const p = mesh.position;
+        threeControlsRef.current.target.set(p.x, p.y, p.z);
+        threeCameraRef.current.position.set(p.x + 8, p.y + 6, p.z + 8);
+      }
+    }
+  }, [blankModelingMode, selectedModelElementId, hiddenModelElementIds]);
+
+  useEffect(() => {
+    if (!blankModelingMode) return;
+    const meshes = Array.from(threeMeshMapRef.current.values());
+    if (meshes.length === 0) return;
+    meshes.forEach((mesh) => {
+      const base = mesh.userData.basePosition as [number, number, number];
+      const len = Math.hypot(base[0], base[1], base[2]) || 1;
+      const explode = explodeFactor * 0.03;
+      mesh.position.set(
+        base[0] + (base[0] / len) * explode,
+        base[1] + (base[1] / len) * explode,
+        base[2] + (base[2] / len) * explode,
+      );
+    });
+  }, [blankModelingMode, explodeFactor]);
+
   const fitAll = () => {
+    if (blankModelingMode) {
+      const meshes = Array.from(threeMeshMapRef.current.values()).filter((m) => m.visible);
+      if (meshes.length === 0 || !threeCameraRef.current || !threeControlsRef.current) return;
+      const box = new THREE.Box3();
+      meshes.forEach((m) => box.expandByObject(m));
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3()).length() || 10;
+      threeControlsRef.current.target.copy(center);
+      threeCameraRef.current.position.set(center.x + size * 0.8, center.y + size * 0.6, center.z + size * 0.8);
+      return;
+    }
     if (!viewerRef.current) return;
     const model = viewerRef.current.scene.models["main-model"];
     if (model) viewerRef.current.cameraFlight.flyTo(model);
   };
 
   const resetView = () => {
+    if (blankModelingMode && threeCameraRef.current && threeControlsRef.current) {
+      threeCameraRef.current.position.set(20, 20, 20);
+      threeControlsRef.current.target.set(0, 0, 0);
+      return;
+    }
     if (!viewerRef.current) return;
     viewerRef.current.camera.eye = [-10, 10, -10];
     viewerRef.current.camera.look = [0, 0, 0];
@@ -618,6 +1113,16 @@ function Viewport({
   };
 
   const toggleXray = () => {
+    if (blankModelingMode) {
+      threeXrayRef.current = !threeXrayRef.current;
+      threeMeshMapRef.current.forEach((mesh) => {
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        mat.wireframe = threeXrayRef.current;
+        mat.transparent = threeXrayRef.current;
+        mat.opacity = threeXrayRef.current ? 0.45 : 1;
+      });
+      return;
+    }
     if (!viewerRef.current) return;
     const objects = viewerRef.current.scene.objectIds;
     const firstObj = viewerRef.current.scene.objects[objects[0]];
@@ -638,6 +1143,9 @@ function Viewport({
         ref={canvasRef}
         tabIndex={0}
       />
+      {blankModelingMode && (
+        <div ref={threeHostRef} className="absolute inset-0" />
+      )}
 
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-xl z-50">
@@ -706,6 +1214,7 @@ function Viewport({
 // ─────────────────────────────────────────
 export default function ViewerPage() {
   const { id } = useParams();
+  const projectId = id as string;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
 
@@ -713,6 +1222,15 @@ export default function ViewerPage() {
   const [hierarchy, setHierarchy] = useState<any>(null);
   const [allElements, setAllElements] = useState<any[]>([]);
   const [explodeFactor, setExplodeFactor] = useState(0);
+  const [blankModelingMode, setBlankModelingMode] = useState(false);
+  const [modelElements, setModelElements] = useState<Array<{
+    id: string;
+    type: string;
+    name?: string;
+    geometry?: { position?: [number, number, number] };
+  }>>([]);
+  const [hiddenModelElementIds, setHiddenModelElementIds] = useState<Set<string>>(new Set());
+  const [selectedModelElementId, setSelectedModelElementId] = useState<string | null>(null);
 
   // Floor filter state
   const [floorNames, setFloorNames] = useState<string[]>([]);
@@ -721,7 +1239,76 @@ export default function ViewerPage() {
   const allFloorElementIds = useRef<string[]>([]);
 
   const { setSelectedElement, setBoqItems } = useViewerStore();
-  const projectId = id as string;
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+
+  const loadModelElements = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/modeling/projects/${projectId}/elements`);
+      if (res.ok) {
+        const elements = await res.json();
+        setModelElements(elements);
+        if (blankModelingMode) {
+          setAllElements(elements);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not fetch modeling elements", e);
+    }
+  }, [apiUrl, projectId, blankModelingMode]);
+
+  const quickCreateElement = useCallback(
+    async (type: string) => {
+      if (!blankModelingMode) return;
+      const elementCount = modelElements.length + 1;
+      const payload = {
+        type,
+        name: `${type}_${String(elementCount).padStart(3, "0")}`,
+        geometry: {
+          position: [((elementCount - 1) % 6) * 2 - 5, type === "Slab" ? 0.15 : 1.5, Math.floor((elementCount - 1) / 6) * 2 - 5],
+        },
+        parameters: { source: "top-model-toolbar" },
+      };
+      const res = await fetch(`${apiUrl}/api/modeling/projects/${projectId}/elements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        await loadModelElements();
+      }
+    },
+    [apiUrl, projectId, modelElements.length, loadModelElements],
+  );
+
+  const selectBlankElement = useCallback(
+    (elementId: string) => {
+      const el = modelElements.find((item) => item.id === elementId);
+      if (!el) return;
+      setSelectedModelElementId(elementId);
+      setSelectedElement({
+        global_id: el.id,
+        ifc_type: el.type,
+        name: el.name || el.id,
+        properties: {
+          "Model Element ID": el.id,
+          Type: el.type,
+          Position: JSON.stringify(el.geometry?.position || [0, 0, 0]),
+        },
+      });
+    },
+    [modelElements, setSelectedElement],
+  );
+
+  const toggleBlankVisibility = useCallback((ids: string[], visible: boolean) => {
+    setHiddenModelElementIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => {
+        if (visible) next.delete(id);
+        else next.add(id);
+      });
+      return next;
+    });
+  }, []);
 
   // Explode logic
   const applyExplode = useCallback((factor: number) => {
@@ -786,17 +1373,20 @@ export default function ViewerPage() {
     const map = new Map<string, string[]>();
     const allIds: string[] = [];
 
+    const collectLeafIds = (node: any, bucket: string[]) => {
+      if (!node) return;
+      if (!node.children || node.children.length === 0) {
+        if (node.id) bucket.push(node.id);
+        return;
+      }
+      node.children.forEach((c: any) => collectLeafIds(c, bucket));
+    };
+
     function traverse(node: any) {
       if (!node) return;
       if (node.type === "IfcBuildingStorey") {
         const guids: string[] = [];
-        node.children?.forEach((child: any) => {
-          if (child.children?.length === 0 || child.type?.startsWith("Ifc")) {
-            guids.push(child.id);
-          } else {
-            traverse(child);
-          }
-        });
+        node.children?.forEach((child: any) => collectLeafIds(child, guids));
         map.set(node.name || node.id, guids);
         guids.forEach((g) => allIds.push(g));
       } else if (node.children) {
@@ -817,14 +1407,18 @@ export default function ViewerPage() {
     const viewer = viewerRef.current;
     const objects = viewer.scene.objects;
 
+    const mappedAll = allFloorElementIds.current.filter((g) => !!objects[g]);
+    if (mappedAll.length === 0) return;
+
     if (floor === "All") {
-      allFloorElementIds.current.forEach((g) => {
-        if (objects[g]) objects[g].visible = true;
+      mappedAll.forEach((g) => {
+        objects[g].visible = true;
       });
     } else {
-      const floorIds = floorMap.current.get(floor) || [];
-      allFloorElementIds.current.forEach((g) => {
-        if (objects[g]) objects[g].visible = floorIds.includes(g);
+      const floorIds = (floorMap.current.get(floor) || []).filter((g) => !!objects[g]);
+      if (floorIds.length === 0) return;
+      mappedAll.forEach((g) => {
+        objects[g].visible = floorIds.includes(g);
       });
     }
   }, []);
@@ -880,6 +1474,10 @@ export default function ViewerPage() {
         if (!active || !viewer) return;
 
         setHierarchy(data.hierarchy);
+        setBlankModelingMode(!data.viewer_file);
+        if (!data.viewer_file) {
+          await loadModelElements();
+        }
 
         // Extract floors from hierarchy
         if (data.hierarchy) {
@@ -1015,6 +1613,14 @@ export default function ViewerPage() {
           setLoading(false);
         }
 
+        const resolvePickObjectId = (pick: any): string | null => {
+          const rawId = pick?.entity?.id;
+          if (!rawId) return null;
+          if (viewer?.scene.models[rawId]) return null; // ignore model root
+          if (!viewer?.scene.objects[rawId]) return null; // only leaf object IDs
+          return rawId;
+        };
+
         // Hover
         viewer.cameraControl.on("hover", (pick: any) => {
           if (!viewer) return;
@@ -1022,7 +1628,10 @@ export default function ViewerPage() {
             viewer.scene.highlightedObjectIds,
             false,
           );
-          if (pick.entity) pick.entity.highlighted = true;
+          const objectId = resolvePickObjectId(pick);
+          if (objectId) {
+            viewer.scene.setObjectsHighlighted([objectId], true);
+          }
         });
 
         // Pick → update Zustand store with fallback for non-BIM
@@ -1032,9 +1641,9 @@ export default function ViewerPage() {
             viewer.scene.selectedObjectIds,
             false,
           );
-          if (pick.entity) {
-            pick.entity.selected = true;
-            const entityId = pick.entity.id;
+          const entityId = resolvePickObjectId(pick);
+          if (entityId) {
+            viewer.scene.setObjectsSelected([entityId], true);
 
             try {
               const propRes = await fetch(
@@ -1083,7 +1692,7 @@ export default function ViewerPage() {
       setSelectedElement(null);
       setBoqItems([]);
     };
-  }, [projectId, setSelectedElement, setBoqItems, extractFloorMap]);
+  }, [projectId, setSelectedElement, setBoqItems, extractFloorMap, loadModelElements]);
 
   const hasFloors = floorNames.length > 0;
 
@@ -1095,6 +1704,8 @@ export default function ViewerPage() {
         selectedFloor={selectedFloor}
         onFloorChange={handleFloorChange}
         hasFloors={hasFloors}
+        onQuickCreate={quickCreateElement}
+        modelingEnabled={blankModelingMode}
       />
 
       {/* 2. Main area: Left + Center + Right */}
@@ -1104,6 +1715,9 @@ export default function ViewerPage() {
           allElements={allElements}
           viewerRef={viewerRef}
           projectId={projectId}
+          blankModelingMode={blankModelingMode}
+          onSelectBlankElement={selectBlankElement}
+          onToggleBlankVisibility={toggleBlankVisibility}
         />
 
         <div className="flex-1 flex flex-col min-w-0">
@@ -1114,11 +1728,15 @@ export default function ViewerPage() {
             explodeFactor={explodeFactor}
             onExplodeChange={handleExplodeChange}
             hasFloors={hasFloors}
+            blankModelingMode={blankModelingMode}
+            modelElements={modelElements}
+            hiddenModelElementIds={hiddenModelElementIds}
+            selectedModelElementId={selectedModelElementId}
           />
           <BottomPanel />
         </div>
 
-        <RightPanel />
+        <RightPanel projectId={projectId} onModelingChanged={loadModelElements} />
       </div>
     </div>
   );

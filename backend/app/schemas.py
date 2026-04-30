@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from .models import ProjectStatus
+from .models import ProjectStatus, ModelElementType
 
 class UserCreate(BaseModel):
     name: str
@@ -22,6 +22,13 @@ class UserOut(BaseModel):
         from_attributes = True
 
 class ProjectCreate(BaseModel):
+    name: str
+    client_name: Optional[str] = None
+    location: Optional[str] = None
+    team_members: Optional[List[Dict[str, str]]] = None
+
+
+class ProjectBlankCreate(BaseModel):
     name: str
     client_name: Optional[str] = None
     location: Optional[str] = None
@@ -62,3 +69,65 @@ class BOQSummaryItem(BaseModel):
     quantity: str
     unit: Optional[str] = None
     total: float
+
+
+class MaterialBase(BaseModel):
+    name: str
+    category: Optional[str] = None
+    specification: Optional[Dict[str, Any]] = None
+    color: Optional[str] = None
+
+
+class MaterialCreate(MaterialBase):
+    pass
+
+
+class MaterialUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    specification: Optional[Dict[str, Any]] = None
+    color: Optional[str] = None
+
+
+class MaterialOut(MaterialBase):
+    id: str
+    project_id: str
+
+    class Config:
+        from_attributes = True
+
+
+class ModelElementBase(BaseModel):
+    type: ModelElementType
+    name: Optional[str] = None
+    start: Optional[List[float]] = None
+    end: Optional[List[float]] = None
+    height: Optional[float] = None
+    thickness: Optional[float] = None
+    geometry: Optional[Dict[str, Any]] = None
+    material_id: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+
+class ModelElementCreate(ModelElementBase):
+    pass
+
+
+class ModelElementUpdate(BaseModel):
+    type: Optional[ModelElementType] = None
+    name: Optional[str] = None
+    start: Optional[List[float]] = None
+    end: Optional[List[float]] = None
+    height: Optional[float] = None
+    thickness: Optional[float] = None
+    geometry: Optional[Dict[str, Any]] = None
+    material_id: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+
+
+class ModelElementOut(ModelElementBase):
+    id: str
+    project_id: str
+
+    class Config:
+        from_attributes = True

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ..database import get_db
 from ..models import Project, ProjectStatus, BOQItem
-from ..schemas import ProjectCreate, ProjectOut, BOQSummaryItem, ProjectUpdate
+from ..schemas import ProjectCreate, ProjectOut, BOQSummaryItem, ProjectUpdate, ProjectBlankCreate
 from ..tasks import process_upload          # <-- new worker
 from ..storage import upload_file, ensure_storage, get_file_url
 from uuid import uuid4
@@ -67,6 +67,29 @@ async def create_project(
     # ---- trigger background processing (IFC or other format) ----
     background_tasks.add_task(process_upload, str(project_id), ext)
 
+    return project
+
+
+@router.post("/blank", response_model=ProjectOut)
+async def create_blank_project(
+    payload: ProjectBlankCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    project_id = str(uuid4())
+    project = Project(
+        id=project_id,
+        name=payload.name,
+        status=ProjectStatus.READY,
+        original_file=f"blank://{project_id}",
+        hierarchy={"id": "root", "name": payload.name, "type": "Project", "children": []},
+        client_name=payload.client_name,
+        location=payload.location,
+        team_members=payload.team_members,
+        viewer_file=None,
+    )
+    db.add(project)
+    await db.commit()
+    await db.refresh(project)
     return project
 
 
