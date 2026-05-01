@@ -12,7 +12,7 @@ const apiBase = () => {
   return base.endsWith("/") ? base.slice(0, -1) : base;
 };
 
-export default function Module15Page() {
+export default function SorCostingPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -66,7 +66,7 @@ export default function Module15Page() {
     setMsg("");
     try {
       const parsed = JSON.parse(payload);
-      const res = await fetch(`${apiBase()}/api/projects/${projectId}/module-15/costing`, {
+      const res = await fetch(`${apiBase()}/api/projects/${projectId}/sor-costing`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed),
@@ -74,7 +74,7 @@ export default function Module15Page() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || "Costing failed");
       setResult(data);
-      setMsg("Module 15 costing generated");
+      setMsg(" costing generated");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Costing failed");
     }
@@ -86,7 +86,7 @@ export default function Module15Page() {
         <Link href="/" className="inline-flex items-center gap-2 text-white/60 hover:text-white">
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
-        <div className="text-xs uppercase tracking-[0.24em] text-lime-300">Module 15 Indian SOR / Costing</div>
+        <div className="text-xs uppercase tracking-[0.24em] text-lime-300"> Indian SOR / Costing</div>
       </header>
 
       <section className="max-w-[1400px] mx-auto px-6 py-6 grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-6">
@@ -119,7 +119,7 @@ export default function Module15Page() {
             onClick={runCosting}
             className="w-full rounded-xl bg-lime-600 hover:bg-lime-500 px-4 py-2 text-xs font-bold uppercase tracking-wider inline-flex items-center justify-center gap-2"
           >
-            <Play className="w-4 h-4" /> Run Module 15
+            <Play className="w-4 h-4" /> Run 
           </button>
           <p className="text-xs text-white/50">{msg}</p>
         </aside>
@@ -129,7 +129,7 @@ export default function Module15Page() {
             <IndianRupee className="w-4 h-4" /> Cost output
           </div>
           {!result ? (
-            <div className="text-white/40 text-sm">Run costing after Module 14 takeoff.</div>
+            <div className="text-white/40 text-sm">Run costing after  takeoff.</div>
           ) : (
             <>
               <div className="grid grid-cols-2 gap-4">

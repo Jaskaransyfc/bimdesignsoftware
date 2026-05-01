@@ -232,8 +232,9 @@ def _eval_formula(expr: str, variables: dict[str, float]) -> float:
     return float(evaluator.visit(parsed))
 
 
+@router.post("/{project_id}/quantity-takeoff")
 @router.post("/{project_id}/module-14/takeoff")
-async def module14_takeoff(
+async def quantity_takeoff(
     project_id: str,
     payload: QuantityTakeoffPayload,
     db: AsyncSession = Depends(get_db),
@@ -282,8 +283,9 @@ def _load_takeoff(project_id: str) -> dict[str, float]:
     return result
 
 
+@router.post("/{project_id}/sor-costing")
 @router.post("/{project_id}/module-15/costing")
-async def module15_costing(
+async def sor_costing(
     project_id: str,
     payload: CostingPayload,
     db: AsyncSession = Depends(get_db),
@@ -294,7 +296,7 @@ async def module15_costing(
 
     quantities = _load_takeoff(project_id)
     if not quantities:
-        raise HTTPException(status_code=400, detail="Takeoff not available. Run Module 14 first.")
+        raise HTTPException(status_code=400, detail="Takeoff not available. Run first.")
 
     boq_lines: list[dict[str, Any]] = []
     mismatches: list[dict[str, Any]] = []
@@ -396,8 +398,9 @@ def _model_element_to_aabb(el: ModelElement) -> dict[str, Any] | None:
     return None
 
 
+@router.post("/{project_id}/clash-detection")
 @router.post("/{project_id}/module-16/clashes")
-async def module16_clashes(
+async def clash_detection(
     project_id: str,
     payload: ClashPayload,
     db: AsyncSession = Depends(get_db),

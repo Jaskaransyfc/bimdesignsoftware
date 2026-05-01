@@ -16,7 +16,7 @@ const apiBase = () => {
   return base.endsWith("/") ? base.slice(0, -1) : base;
 };
 
-export default function Module13Page() {
+export default function SheetExport() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -63,7 +63,7 @@ export default function Module13Page() {
         <Link href="/" className="inline-flex items-center gap-2 text-white/60 hover:text-white">
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
-        <div className="text-xs uppercase tracking-[0.24em] text-emerald-300">Module 13 Sheet / Drawing Export</div>
+        <div className="text-xs uppercase tracking-[0.24em] text-emerald-300">Sheet / Drawing Export</div>
       </header>
 
       <section className="max-w-[1500px] mx-auto px-6 py-6 grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6">

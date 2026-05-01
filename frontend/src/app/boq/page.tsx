@@ -13,7 +13,7 @@ const apiBase = () => {
   return base.endsWith("/") ? base.slice(0, -1) : base;
 };
 
-export default function Module14Page() {
+export default function QuantityTakeoffPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -50,7 +50,7 @@ export default function Module14Page() {
     setMsg("");
     try {
       const parsed = JSON.parse(tasks);
-      const res = await fetch(`${apiBase()}/api/projects/${projectId}/module-14/takeoff`, {
+      const res = await fetch(`${apiBase()}/api/projects/${projectId}/quantity-takeoff`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tasks: parsed }),
@@ -70,7 +70,7 @@ export default function Module14Page() {
         <Link href="/" className="inline-flex items-center gap-2 text-white/60 hover:text-white">
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
-        <div className="text-xs uppercase tracking-[0.24em] text-orange-300">Module 14 BOQ / Quantity Takeoff</div>
+        <div className="text-xs uppercase tracking-[0.24em] text-orange-300"> BOQ / Quantity Takeoff</div>
       </header>
 
       <section className="max-w-[1400px] mx-auto px-6 py-6 grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-6">
@@ -103,7 +103,7 @@ export default function Module14Page() {
             onClick={runTakeoff}
             className="w-full rounded-xl bg-orange-600 hover:bg-orange-500 px-4 py-2 text-xs font-bold uppercase tracking-wider inline-flex items-center justify-center gap-2"
           >
-            <Play className="w-4 h-4" /> Run Module 14
+            <Play className="w-4 h-4" /> Run 
           </button>
           <p className="text-xs text-white/50">{msg}</p>
         </aside>

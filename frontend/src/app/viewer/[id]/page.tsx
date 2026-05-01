@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -69,6 +69,23 @@ type ViewerModelElement = {
   thickness?: number;
   geometry?: { position?: XYZ; start?: XYZ; end?: XYZ; rotationY?: number };
   parameters?: Record<string, any>;
+};
+
+type IFCElementLite = {
+  global_id: string;
+  ifc_type: string;
+  name?: string | null;
+};
+
+type ClashRow = {
+  task_id: string;
+  a_id: string;
+  b_id: string;
+  a_type: string;
+  b_type: string;
+  overlap: boolean;
+  clearance_mm: number;
+  min_required_mm: number;
 };
 
 // ─────────────────────────────────────────
@@ -1082,14 +1099,168 @@ function RightPanel({
 // ─────────────────────────────────────────
 // BOTTOM PANEL – BOQ / Issues / Clash
 // ─────────────────────────────────────────
-function BottomPanel() {
+function normalizeIfcType(ifcType: string): string {
+  if (!ifcType) return "Unknown";
+  return ifcType.replace(/^Ifc/i, "");
+}
+
+function BottomPanel({
+  projectId,
+  viewerRef,
+  allElements,
+}: {
+  projectId: string;
+  viewerRef: React.MutableRefObject<Viewer | null>;
+  allElements: IFCElementLite[];
+}) {
   const {
     bottomPanelOpen,
     toggleBottomPanel,
     bottomTab,
     setBottomTab,
     boqItems,
+    setSelectedElement,
   } = useViewerStore();
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+  const [runningClash, setRunningClash] = useState(false);
+  const [clashMessage, setClashMessage] = useState("");
+  const [clashRows, setClashRows] = useState<ClashRow[]>([]);
+  const [clashEditorOpen, setClashEditorOpen] = useState(false);
+  const [clashTasksText, setClashTasksText] = useState(
+    JSON.stringify(
+      [
+        { id: "beam_vs_wall", a_type: "Beam", b_type: "Wall", min_clearance_mm: 25 },
+        { id: "column_vs_opening", a_type: "Column", b_type: "Opening", min_clearance_mm: 15 },
+        { id: "slab_vs_window", a_type: "Slab", b_type: "Window", min_clearance_mm: 10 },
+      ],
+      null,
+      2,
+    ),
+  );
+
+  const issues = useMemo(
+    () =>
+      clashRows.map((row, idx) => {
+        const severity = row.overlap ? "high" : row.clearance_mm <= row.min_required_mm / 2 ? "high" : "medium";
+        const title = row.overlap
+          ? `Hard clash: ${row.a_type} vs ${row.b_type}`
+          : `Clearance violation: ${row.a_type} vs ${row.b_type}`;
+        const recommendation = row.overlap
+          ? "Re-route one system or modify host geometry."
+          : "Increase clearance, move service, or resize conflicting element.";
+        return {
+          id: `${row.task_id}-${row.a_id}-${row.b_id}-${idx}`,
+          title,
+          severity,
+          details: `${row.a_id} vs ${row.b_id} | clearance ${row.clearance_mm.toFixed(1)}mm (required ${row.min_required_mm.toFixed(1)}mm)`,
+          recommendation,
+        };
+      }),
+    [clashRows],
+  );
+
+  const runClashFromViewer = useCallback(async () => {
+    setRunningClash(true);
+    setClashMessage("");
+    try {
+      const parsedTasks = JSON.parse(clashTasksText);
+      const viewer = viewerRef.current;
+      const sceneObjects = viewer?.scene?.objects || {};
+      const elementBoxes = allElements
+        .slice(0, 1200)
+        .map((el) => {
+          const obj = sceneObjects[el.global_id] as { aabb?: number[] } | undefined;
+          const aabb = obj?.aabb;
+          if (!aabb || aabb.length < 6) return null;
+          return {
+            id: el.global_id,
+            type: normalizeIfcType(el.ifc_type),
+            min: [aabb[0], aabb[1], aabb[2]],
+            max: [aabb[3], aabb[4], aabb[5]],
+          };
+        })
+        .filter(Boolean);
+
+      const res = await fetch(`${apiUrl}/api/projects/${projectId}/clash-detection`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tasks: parsedTasks,
+          elements: elementBoxes,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || "Clash detection failed");
+      const rows: ClashRow[] = Array.isArray(data?.clashes) ? data.clashes : [];
+      setClashRows(rows);
+      setClashMessage(`Checked ${data?.checked_elements ?? 0} elements, found ${rows.length} clashes.`);
+      setBottomTab("clash");
+    } catch (e) {
+      setClashMessage(e instanceof Error ? e.message : "Could not run clash detection");
+    } finally {
+      setRunningClash(false);
+    }
+  }, [allElements, apiUrl, clashTasksText, projectId, setBottomTab, viewerRef]);
+
+  const focusClashRow = useCallback(
+    (row: ClashRow) => {
+      const viewer = viewerRef.current as any;
+      if (!viewer?.scene) return;
+      const scene = viewer.scene as any;
+      const aObj = scene.objects?.[row.a_id];
+      const bObj = scene.objects?.[row.b_id];
+      if (!aObj && !bObj) return;
+
+      try {
+        const allIds: string[] = scene.objectIds || [];
+        if (typeof scene.setObjectsHighlighted === "function") {
+          scene.setObjectsHighlighted(allIds, false);
+          const targetIds = [row.a_id, row.b_id].filter((id) => !!scene.objects?.[id]);
+          scene.setObjectsHighlighted(targetIds, true);
+        } else {
+          allIds.forEach((id) => {
+            if (scene.objects?.[id]) scene.objects[id].highlighted = false;
+          });
+          if (aObj) aObj.highlighted = true;
+          if (bObj) bObj.highlighted = true;
+        }
+      } catch {
+        // ignore highlight API differences across xeokit versions
+      }
+
+      const ids = [row.a_id, row.b_id];
+      const matchElements = ids
+        .map((id) => allElements.find((el) => el.global_id === id))
+        .filter((x): x is IFCElementLite => !!x);
+      const picked = matchElements[0];
+      if (picked) {
+        setSelectedElement({
+          global_id: picked.global_id,
+          ifc_type: picked.ifc_type,
+          name: picked.name || picked.global_id,
+          properties: {
+            source: "clash-detection",
+            clash_task: row.task_id,
+            clash_pair: `${row.a_id} vs ${row.b_id}`,
+            overlap: row.overlap ? "true" : "false",
+            clearance_mm: row.clearance_mm,
+            required_mm: row.min_required_mm,
+          },
+        });
+      }
+
+      try {
+        if (aObj && typeof viewer.cameraFlight?.flyTo === "function") {
+          viewer.cameraFlight.flyTo(aObj);
+        } else if (bObj && typeof viewer.cameraFlight?.flyTo === "function") {
+          viewer.cameraFlight.flyTo(bObj);
+        }
+      } catch {
+        // no-op if camera flight target fails
+      }
+    },
+    [allElements, setSelectedElement, viewerRef],
+  );
 
   if (!bottomPanelOpen) return null;
 
@@ -1161,12 +1332,137 @@ function BottomPanel() {
             </div>
           )
         ) : bottomTab === "issues" ? (
-          <div className="flex items-center justify-center h-full text-white/15 text-xs gap-2">
-            <AlertTriangle className="w-4 h-4" /> Issue tracking coming soon
+          <div className="p-3 space-y-2 text-xs">
+            {issues.length === 0 ? (
+              <div className="text-white/40 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                No issues generated yet. Run clash detection first.
+              </div>
+            ) : (
+              issues.map((issue) => (
+                <div key={issue.id} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-white/85">{issue.title}</div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wider ${
+                        issue.severity === "high"
+                          ? "bg-red-500/20 text-red-300 border border-red-400/30"
+                          : "bg-amber-500/20 text-amber-300 border border-amber-400/30"
+                      }`}
+                    >
+                      {issue.severity}
+                    </span>
+                  </div>
+                  <div className="text-white/55 mt-1">{issue.details}</div>
+                  <div className="text-white/40 mt-1">Action: {issue.recommendation}</div>
+                </div>
+              ))
+            )}
           </div>
         ) : (
-          <div className="flex items-center justify-center h-full text-white/15 text-xs gap-2">
-            <Zap className="w-4 h-4" /> Clash detection coming soon
+          <div className="h-full p-3 flex flex-col gap-2 text-xs">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-white/55">
+                Run clash detection with user-defined tasks for current viewer model.
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setClashEditorOpen(true)}
+                  className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-white font-semibold"
+                >
+                  Edit Tasks
+                </button>
+                <button
+                  onClick={runClashFromViewer}
+                  disabled={runningClash}
+                  className="px-3 py-1.5 rounded bg-blue-600/80 hover:bg-blue-600 disabled:bg-white/10 text-white font-semibold"
+                >
+                  {runningClash ? "Running..." : "Run Clash"}
+                </button>
+              </div>
+            </div>
+            <textarea
+              value={clashTasksText}
+              onChange={(e) => setClashTasksText(e.target.value)}
+              className="w-full h-24 bg-white/5 border border-white/10 rounded p-2 font-mono text-[11px]"
+            />
+            <div className="text-white/45">{clashMessage || `${clashRows.length} clashes loaded`}</div>
+            <div className="flex-1 overflow-auto border border-white/10 rounded">
+              <table className="w-full text-[11px]">
+                <thead className="sticky top-0 bg-[#0f1020]">
+                  <tr className="text-left text-white/40 uppercase tracking-wider">
+                    <th className="p-2">Task</th>
+                    <th className="p-2">A</th>
+                    <th className="p-2">B</th>
+                    <th className="p-2">Overlap</th>
+                    <th className="p-2">Clearance mm</th>
+                    <th className="p-2">Required mm</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clashRows.map((row, idx) => (
+                    <tr
+                      key={`${row.task_id}-${row.a_id}-${row.b_id}-${idx}`}
+                      className="border-t border-white/10 hover:bg-white/5 cursor-pointer"
+                      onClick={() => focusClashRow(row)}
+                      title="Click to focus conflicting elements in 3D"
+                    >
+                      <td className="p-2 text-white/75">{row.task_id}</td>
+                      <td className="p-2 text-white/60">{row.a_type} ({row.a_id})</td>
+                      <td className="p-2 text-white/60">{row.b_type} ({row.b_id})</td>
+                      <td className={`p-2 ${row.overlap ? "text-red-300" : "text-amber-300"}`}>
+                        {row.overlap ? "Yes" : "No"}
+                      </td>
+                      <td className="p-2 text-white/75">{row.clearance_mm.toFixed(2)}</td>
+                      <td className="p-2 text-white/55">{row.min_required_mm.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                  {clashRows.length === 0 && (
+                    <tr>
+                      <td className="p-3 text-white/30" colSpan={6}>
+                        No clashes yet. Click "Run Clash".
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {clashEditorOpen && (
+              <div className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm p-4">
+                <div className="max-w-5xl mx-auto h-full bg-[#0e1020] border border-white/10 rounded-xl flex flex-col">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                    <div className="text-sm font-semibold text-white/90">
+                      Clash Task Editor ()
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setClashEditorOpen(false)}
+                        className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-xs font-semibold"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex-1 p-4">
+                    <textarea
+                      value={clashTasksText}
+                      onChange={(e) => setClashTasksText(e.target.value)}
+                      className="w-full h-full bg-black/30 border border-white/10 rounded p-3 font-mono text-xs text-white/90"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className="px-4 pb-4 flex justify-end gap-2">
+                    <button
+                      onClick={runClashFromViewer}
+                      disabled={runningClash}
+                      className="px-4 py-2 rounded bg-blue-600/80 hover:bg-blue-600 disabled:bg-white/10 text-sm font-semibold"
+                    >
+                      {runningClash ? "Running..." : "Run Clash With These Tasks"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -3095,7 +3391,11 @@ export default function ViewerPage() {
             onUpdateModelElement={updateModelElement}
             previewModelElementUpdates={previewModelElementUpdates}
           />
-          <BottomPanel />
+          <BottomPanel
+            projectId={projectId}
+            viewerRef={viewerRef}
+            allElements={allElements}
+          />
         </div>
 
         <RightPanel

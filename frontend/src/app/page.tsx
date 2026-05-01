@@ -24,6 +24,10 @@ import {
   Calculator,
   IndianRupee,
   ShieldAlert,
+  Bug,
+  UsersRound,
+  GitCompareArrows,
+  Sigma,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -146,83 +150,116 @@ export default function Dashboard() {
     <main className="min-h-screen bg-[#0d0e1a] text-white">
       {/* Top bar */}
       <header className="border-b border-white/5 bg-[#0d0e1a]/80 backdrop-blur-xl sticky top-0 z-30">
-        <div className="max-w-[1400px] mx-auto px-6 md:px-10 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-sm">
-              B
+        <div className="max-w-[1400px] mx-auto px-6 md:px-10 py-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-black text-sm">
+                B
+              </div>
+              <div>
+                <h1 className="text-lg font-bold tracking-tight">BIM Cloud</h1>
+                <p className="text-[10px] text-white/30 font-medium uppercase tracking-widest">
+                  Project Center
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">BIM Cloud</h1>
-              <p className="text-[10px] text-white/30 font-medium uppercase tracking-widest">
-                Project Center
-              </p>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg px-4 py-2">
+                <UserCircle className="w-4 h-4 text-white/40" />
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-white leading-tight">
+                    {currentUserName}
+                  </span>
+                  <span className="text-[9px] text-white/40 leading-tight uppercase tracking-widest">
+                    {currentUserEmail}
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    localStorage.clear();
+                    router.push("/login");
+                  }}
+                  className="ml-2 text-white/30 hover:text-red-400 transition-colors"
+                  title="Log Out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+
+              <Link
+                id="new-project-btn"
+                href="/upload"
+                className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-blue-600/20 uppercase tracking-wider"
+              >
+                <PlusCircle className="w-4 h-4" /> New Project
+              </Link>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg px-4 py-2">
-              <UserCircle className="w-4 h-4 text-white/40" />
-              <div className="flex flex-col">
-                <span className="text-xs font-bold text-white leading-tight">
-                  {currentUserName}
-                </span>
-                <span className="text-[9px] text-white/40 leading-tight uppercase tracking-widest">
-                  {currentUserEmail}
-                </span>
-              </div>
-              <button
-                onClick={() => {
-                  localStorage.clear();
-                  router.push("/login");
-                }}
-                className="ml-2 text-white/30 hover:text-red-400 transition-colors"
-                title="Log Out"
+
+          <div className="overflow-x-auto pb-1">
+            <div className="flex items-center gap-2 min-w-max">
+              <Link
+                href="/plan-viewer"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
               >
-                <LogOut className="w-4 h-4" />
-              </button>
+                <LayoutGrid className="w-4 h-4" /> 2D Plan Viewer
+              </Link>
+              <Link
+                href="/annotations"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+              >
+                <PencilRuler className="w-4 h-4" /> Annotation
+              </Link>
+              <Link
+                href="/sheet-export"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+              >
+                <ScrollText className="w-4 h-4" /> Sheet Export
+              </Link>
+              <Link
+                href="/boq"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+              >
+                <Calculator className="w-4 h-4" /> BOQ
+              </Link>
+              <Link
+                href="/sor-costing"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+              >
+                <IndianRupee className="w-4 h-4" /> SOR Costing
+              </Link>
+              <Link
+                href="/clash-detaction"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+              >
+                <ShieldAlert className="w-4 h-4" /> Clash
+              </Link>
+              <Link
+                href="/issue-bcf"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+              >
+                <Bug className="w-4 h-4" /> Issues / BCF
+              </Link>
+              <Link
+                href="/collaboration"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+              >
+                <UsersRound className="w-4 h-4" /> Collaboration
+              </Link>
+              <Link
+                href="/version-compare"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+              >
+                <GitCompareArrows className="w-4 h-4" /> Version Diff
+              </Link>
+              <Link
+                href="/structural-check"
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+              >
+                <Sigma className="w-4 h-4" /> Structural
+              </Link>
             </div>
-            <Link
-              id="new-project-btn"
-              href="/upload"
-              className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all hover:shadow-lg hover:shadow-blue-600/20 uppercase tracking-wider"
-            >
-              <PlusCircle className="w-4 h-4" /> New Project
-            </Link>
-            <Link
-              href="/module-11"
-              className="bg-white/5 hover:bg-white/10 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider"
-            >
-              <LayoutGrid className="w-4 h-4" /> 2d Plan Viewer
-            </Link>
-            <Link
-              href="/module-12"
-              className="bg-white/5 hover:bg-white/10 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider"
-            >
-              <PencilRuler className="w-4 h-4" /> Annotation
-            </Link>
-            <Link
-              href="/module-13"
-              className="bg-white/5 hover:bg-white/10 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider"
-            >
-              <ScrollText className="w-4 h-4" /> Sheet Export
-            </Link>
-            <Link
-              href="/module-14"
-              className="bg-white/5 hover:bg-white/10 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider"
-            >
-              <Calculator className="w-4 h-4" /> BOQ
-            </Link>
-            <Link
-              href="/module-15"
-              className="bg-white/5 hover:bg-white/10 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider"
-            >
-              <IndianRupee className="w-4 h-4" /> SOR Costing
-            </Link>
-            <Link
-              href="/module-16"
-              className="bg-white/5 hover:bg-white/10 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider"
-            >
-              <ShieldAlert className="w-4 h-4" /> Clash
-            </Link>
           </div>
         </div>
       </header>

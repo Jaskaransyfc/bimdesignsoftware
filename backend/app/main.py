@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from .api import projects, elements, auth, modeling, drawings, engines
+from .api import projects, elements, auth, modeling, drawings, engines, collab
 from .database import engine, Base
 from .config import STORAGE_MODE, LOCAL_STORAGE_PATH
 import os
@@ -38,3 +38,4 @@ app.include_router(auth.router)
 app.include_router(modeling.router)
 app.include_router(drawings.router)
 app.include_router(engines.router)
+app.include_router(collab.router)

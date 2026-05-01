@@ -24,3 +24,19 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Unified dark dropdown styling across pages */
+select {
+  background-color: rgba(0, 0, 0, 0.25);
+  color: #e5e7eb;
+}
+
+select option {
+  background-color: #0f1020;
+  color: #e5e7eb;
+}
+
+select:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+}

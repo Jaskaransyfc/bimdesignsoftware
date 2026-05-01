@@ -38,7 +38,7 @@ const apiBase = () => {
   return base.endsWith("/") ? base.slice(0, -1) : base;
 };
 
-export default function Module12Page() {
+export default function Annotation() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -126,7 +126,7 @@ export default function Module12Page() {
         <Link href="/" className="inline-flex items-center gap-2 text-white/60 hover:text-white">
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
-        <div className="text-xs uppercase tracking-[0.24em] text-cyan-300">Module 12 Annotation + Dimension</div>
+        <div className="text-xs uppercase tracking-[0.24em] text-cyan-300">Annotation + Dimension</div>
       </header>
 
       <section className="max-w-[1500px] mx-auto px-6 py-6 grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6">

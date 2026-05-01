@@ -36,7 +36,7 @@ const apiBase = () => {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 };
 
-export default function Module11Page() {
+export default function PlanViewer() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);

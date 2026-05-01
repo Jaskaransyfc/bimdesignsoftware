@@ -218,7 +218,7 @@ async def get_sheet_pdf(
         margin + title_h - 42,
         f"Sheet: {size}  View: {view.title()}  Drawing No: {drawing_number}  Revision: {revision}",
     )
-    pdf.drawString(margin + 12, margin + 14, "Module 13 export (PDF title-sheet)")
+    pdf.drawString(margin + 12, margin + 14, "export (PDF title-sheet)")
     pdf.showPage()
     pdf.save()
     pdf_bytes = buffer.getvalue()

@@ -22,7 +22,7 @@ const apiBase = () => {
   return base.endsWith("/") ? base.slice(0, -1) : base;
 };
 
-export default function Module16Page() {
+export default function ClashDetectionPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -68,7 +68,7 @@ export default function Module16Page() {
     setMsg("");
     try {
       const parsed = JSON.parse(payload);
-      const res = await fetch(`${apiBase()}/api/projects/${projectId}/module-16/clashes`, {
+      const res = await fetch(`${apiBase()}/api/projects/${projectId}/clash-detection`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed),
@@ -89,7 +89,7 @@ export default function Module16Page() {
         <Link href="/" className="inline-flex items-center gap-2 text-white/60 hover:text-white">
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
-        <div className="text-xs uppercase tracking-[0.24em] text-rose-300">Module 16 Clash Detection</div>
+        <div className="text-xs uppercase tracking-[0.24em] text-rose-300"> Clash Detection</div>
       </header>
 
       <section className="max-w-[1400px] mx-auto px-6 py-6 grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-6">
@@ -122,7 +122,7 @@ export default function Module16Page() {
             onClick={runClash}
             className="w-full rounded-xl bg-rose-600 hover:bg-rose-500 px-4 py-2 text-xs font-bold uppercase tracking-wider inline-flex items-center justify-center gap-2"
           >
-            <Play className="w-4 h-4" /> Run Module 16
+            <Play className="w-4 h-4" /> Run 
           </button>
           <p className="text-xs text-white/50">{msg}</p>
         </aside>
