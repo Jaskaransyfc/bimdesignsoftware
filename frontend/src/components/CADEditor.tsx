@@ -147,20 +147,19 @@ export default function CADEditor({
   ) => {
     if (!wall) return { position: p, orientation: 0 };
     const { len, dir } = getWallDirection(wall);
-    const openingHalf = openingWidthMm / MM_TO_CANVAS / 2;
-    // Allow placing closer to edges, but clamp to ensure it's still within the wall's logical line
-    const minT = clamp(openingHalf / len, 0, 1);
-    const maxT = clamp(1 - minT, 0, 1);
+    const openingHalf = (openingWidthMm / MM_TO_CANVAS) / 2;
+    
     const hit = projectPointOnWall(p, wall);
     
-    // Snapping logic - reduced sensitivity
+    // Snapping logic - snap to center
     let t = hit.t;
-    if (Math.abs(t - 0.5) < 0.02) t = 0.5;
+    if (Math.abs(t - 0.5) < 0.05) t = 0.5;
 
+    // Clamp distance to keep the opening fully within the wall
     const snappedDistance = clamp(
       t * len, 
-      2, // Allow moving very close to the start
-      len - 2 // Allow moving very close to the end
+      openingHalf, 
+      len - openingHalf
     );
 
     const orientation = Math.atan2(dir.y, dir.x) * (180 / Math.PI);
@@ -398,17 +397,29 @@ export default function CADEditor({
         if (el.id !== elementId) return el;
         if (el.type === "door" || el.type === "window") {
           const opening = el as Door | Window;
-          const hostWall = findWallAt(newPos);
+          // Try to find a new wall at the mouse position
+          let hostWall = findWallAt(newPos);
+          
+          // If no new wall found, but it was already on a wall, keep it on the same wall
+          if (!hostWall && opening.wallId) {
+            hostWall = prev.find(w => w.id === opening.wallId && w.type === "wall") as Wall;
+          }
+
+          if (!hostWall) {
+            return { ...el, position: newPos, wallId: undefined };
+          }
+
           const { position, orientation } = constrainOpeningOnWall(
             newPos,
             hostWall,
             opening.width,
           );
+          
           return {
             ...el,
             position,
             orientation,
-            wallId: hostWall?.id,
+            wallId: hostWall.id,
           };
         }
         return el;
@@ -559,10 +570,9 @@ export default function CADEditor({
           onDragStart={() => setSelectedIds([door.id])}
           onDragEnd={(e) => {
             updateOpeningPosition(door.id, {
-              x: door.position.x + e.target.x(),
-              y: door.position.y + e.target.y(),
+              x: e.target.x(),
+              y: e.target.y(),
             });
-            e.target.position({ x: 0, y: 0 });
           }}
         />
       </Group>
@@ -613,10 +623,9 @@ export default function CADEditor({
           onDragStart={() => setSelectedIds([window_.id])}
           onDragEnd={(e) => {
             updateOpeningPosition(window_.id, {
-              x: window_.position.x + e.target.x(),
-              y: window_.position.y + e.target.y(),
+              x: e.target.x(),
+              y: e.target.y(),
             });
-            e.target.position({ x: 0, y: 0 });
           }}
         />
       </Group>
