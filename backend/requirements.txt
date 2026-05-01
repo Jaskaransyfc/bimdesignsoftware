@@ -10,3 +10,11 @@ ifcopenshell
 celery
 redis
 minio
+python-occ
+ezdxf
+pycairo
+trimesh
+shapely
+svgwrite
+reportlab
+pandas

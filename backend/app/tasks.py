@@ -9,12 +9,13 @@ import subprocess
 
 import ifcopenshell
 import ifcopenshell.validate
+from .plan_generator import generate_and_store_views_for_project
 
 from .database import SessionLocalSync
 from .models import Project, ProjectStatus, Element, BOQItem
 from .storage import get_file_content, upload_file
 
-ALLOWED_EXTENSIONS = {"ifc", "glb", "gltf", "obj", "fbx", "dae", "stp", "step", "xyz", "e57", "blend"}
+ALLOWED_EXTENSIONS = {"ifc", "rvt", "glb", "gltf", "obj", "fbx", "dae", "stp", "step", "xyz", "e57", "blend"}
 
 
 def process_upload(project_id: str, extension: str):
@@ -66,6 +67,30 @@ def process_upload(project_id: str, extension: str):
             
             project.viewer_file = viewer_key
             project.xkt_file = viewer_key # Keep for compatibility
+            # Generate 2D views (SVG/DXF) in background
+            try:
+                generate_and_store_views_for_project(project_id, preferred_object=viewer_key)
+            except Exception:
+                pass
+
+        # ── RVT upload (store + fallback 2D placeholders) ─────────────
+        elif extension == "rvt":
+            # Revit RVT is proprietary and not directly processable with the
+            # open-source toolchain in this workspace. Keep the upload, store
+            # a minimal hierarchy, and generate placeholder 2D outputs so the
+            # project remains usable in Module 11.
+            project.hierarchy = {
+                "id": "root",
+                "name": project.name,
+                "type": "Project",
+                "children": []
+            }
+            project.viewer_file = None
+            project.xkt_file = None
+            try:
+                generate_and_store_views_for_project(project_id)
+            except Exception:
+                pass
 
         # ── GLB / GLTF (ready to view) ─────────────────
         elif extension in ("glb", "gltf"):
@@ -81,6 +106,10 @@ def process_upload(project_id: str, extension: str):
                 "type": "Project",
                 "children": []
             }
+            try:
+                generate_and_store_views_for_project(project_id, preferred_object=viewer_key)
+            except Exception:
+                pass
 
         # ── All other formats (OBJ, STL, FBX, DXF, BLEND, etc.) ─────
         else:
@@ -104,6 +133,10 @@ def process_upload(project_id: str, extension: str):
                     "type": "Project",
                     "children": []
                 }
+                try:
+                    generate_and_store_views_for_project(project_id, preferred_object=viewer_key)
+                except Exception:
+                    pass
             except Exception as e:
                 raise Exception(f"Conversion failed for {extension}: {str(e)}")
 

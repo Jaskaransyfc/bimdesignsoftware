@@ -7,13 +7,30 @@ from ..database import get_db
 from ..models import Project, ProjectStatus, BOQItem
 from ..schemas import ProjectCreate, ProjectOut, BOQSummaryItem, ProjectUpdate, ProjectBlankCreate
 from ..tasks import process_upload          # <-- new worker
-from ..storage import upload_file, ensure_storage, get_file_url
+from ..plan_generator import (
+    generate_plan_view_svg,
+    generate_section_view_svg,
+    generate_elevation_view_svg,
+    generate_dxf_from_svg_data,
+    generate_and_store_views_for_project,
+)
+from starlette.responses import StreamingResponse
+from ..storage import upload_file, ensure_storage, get_file_url, get_file_content
 from uuid import uuid4
 import json
+import io
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-ALLOWED_EXTENSIONS = {"ifc", "glb", "gltf", "obj", "fbx", "dae", "stp", "step", "xyz", "e57", "blend"}
+ALLOWED_EXTENSIONS = {"ifc", "rvt", "glb", "gltf", "obj", "fbx", "dae", "stp", "step", "xyz", "e57", "blend"}
+
+
+def _is_unavailable_plan_svg(svg_content: bytes) -> bool:
+    try:
+        text = svg_content.decode("utf-8", errors="ignore")
+    except Exception:
+        return False
+    return "Plan view unavailable" in text
 
 
 @router.post("/", response_model=ProjectOut)
@@ -178,3 +195,99 @@ async def get_original_url(project_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Original file not found")
     url = get_file_url(project.original_file)
     return {"url": url}
+
+
+# ── 2D View Generation ──────────────────────────────────────────
+@router.get("/{project_id}/plan-view.svg")
+async def get_plan_view(project_id: str, db: AsyncSession = Depends(get_db)):
+    project = await db.get(Project, project_id)
+    if not project or not project.original_file:
+        raise HTTPException(status_code=404, detail="Original file not found")
+
+    svg_object = f"viewable/{project_id}/plan.svg"
+    try:
+        svg_content = get_file_content(svg_object)
+        if _is_unavailable_plan_svg(svg_content):
+            generate_and_store_views_for_project(project_id, preferred_object=project.viewer_file)
+            svg_content = get_file_content(svg_object)
+    except Exception:
+        generate_and_store_views_for_project(project_id, preferred_object=project.viewer_file)
+        try:
+            svg_content = get_file_content(svg_object)
+        except Exception:
+            svg_content = generate_plan_view_svg(b"", project_id)
+    return StreamingResponse(
+        io.BytesIO(svg_content),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@router.get("/{project_id}/section-view.svg")
+async def get_section_view(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    cut_plane_origin: str = "0,0,0",  # Example: "x,y,z"
+    cut_plane_direction: str = "0,0,1"  # Example: "dx,dy,dz"
+):
+    project = await db.get(Project, project_id)
+    if not project or not project.original_file:
+        raise HTTPException(status_code=404, detail="Original file not found")
+
+    # Parse origin and direction (simplified for placeholder)
+    origin = tuple(map(float, cut_plane_origin.split(",")))
+    direction = tuple(map(float, cut_plane_direction.split(",")))
+
+    svg_content = generate_section_view_svg(b"", project_id, origin, direction)
+    return StreamingResponse(
+        io.BytesIO(svg_content),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@router.get("/{project_id}/elevation-view.svg")
+async def get_elevation_view(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    elevation_direction: str = "1,0,0"  # Example: "dx,dy,dz"
+):
+    project = await db.get(Project, project_id)
+    if not project or not project.original_file:
+        raise HTTPException(status_code=404, detail="Original file not found")
+
+    direction = tuple(map(float, elevation_direction.split(",")))
+
+    svg_content = generate_elevation_view_svg(b"", project_id, direction)
+    return StreamingResponse(
+        io.BytesIO(svg_content),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@router.get("/{project_id}/plan-view.dxf")
+async def get_plan_view_dxf(project_id: str, db: AsyncSession = Depends(get_db)):
+    project = await db.get(Project, project_id)
+    if not project or not project.original_file:
+        raise HTTPException(status_code=404, detail="Original file not found")
+
+    dxf_object = f"viewable/{project_id}/plan.dxf"
+    try:
+        dxf_content = get_file_content(dxf_object)
+    except Exception:
+        generate_and_store_views_for_project(project_id, preferred_object=project.viewer_file)
+        try:
+            dxf_content = get_file_content(dxf_object)
+        except Exception:
+            svg_content = generate_plan_view_svg(b"", project_id)
+            dxf_content = generate_dxf_from_svg_data(svg_content, project_id)
+
+    return StreamingResponse(
+        io.BytesIO(dxf_content),
+        media_type="application/dxf",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{project_id}_plan_view.dxf\"",
+            "Cache-Control": "no-store, max-age=0",
+        }
+    )

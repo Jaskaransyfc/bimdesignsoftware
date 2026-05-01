@@ -893,22 +893,96 @@ function RightPanel({
                 </p>
                 {selectedModelElement.type === "Wall" ? (
                   <div className="grid grid-cols-2 gap-2">
-                    <label className="text-[10px] text-white/65">Start X (m)<input value={paramWallStartX} onChange={(e) => setParamWallStartX(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
-                    <label className="text-[10px] text-white/65">Start Z (m)<input value={paramWallStartZ} onChange={(e) => setParamWallStartZ(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
-                    <label className="text-[10px] text-white/65">End X (m)<input value={paramWallEndX} onChange={(e) => setParamWallEndX(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
-                    <label className="text-[10px] text-white/65">End Z (m)<input value={paramWallEndZ} onChange={(e) => setParamWallEndZ(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
-                    <label className="text-[10px] text-white/65">Height (Y, m)<input value={paramHeight} onChange={(e) => setParamHeight(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
-                    <label className="text-[10px] text-white/65">Thickness (m)<input value={paramThickness} onChange={(e) => setParamThickness(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    <label className="text-[10px] text-white/65">
+                      Start X (m)
+                      <input
+                        value={paramWallStartX}
+                        onChange={(e) => setParamWallStartX(e.target.value)}
+                        className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                      />
+                    </label>
+                    <label className="text-[10px] text-white/65">
+                      Start Z (m)
+                      <input
+                        value={paramWallStartZ}
+                        onChange={(e) => setParamWallStartZ(e.target.value)}
+                        className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                      />
+                    </label>
+                    <label className="text-[10px] text-white/65">
+                      End X (m)
+                      <input
+                        value={paramWallEndX}
+                        onChange={(e) => setParamWallEndX(e.target.value)}
+                        className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                      />
+                    </label>
+                    <label className="text-[10px] text-white/65">
+                      End Z (m)
+                      <input
+                        value={paramWallEndZ}
+                        onChange={(e) => setParamWallEndZ(e.target.value)}
+                        className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                      />
+                    </label>
+                    <label className="text-[10px] text-white/65">
+                      Height (Y, m)
+                      <input
+                        value={paramHeight}
+                        onChange={(e) => setParamHeight(e.target.value)}
+                        className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                      />
+                    </label>
+                    <label className="text-[10px] text-white/65">
+                      Thickness (m)
+                      <input
+                        value={paramThickness}
+                        onChange={(e) => setParamThickness(e.target.value)}
+                        className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                      />
+                    </label>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
-                    <label className="text-[10px] text-white/65">Width (X, m)<input value={paramWidth} onChange={(e) => setParamWidth(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
-                    <label className="text-[10px] text-white/65">Height (Y, m)<input value={paramHeight} onChange={(e) => setParamHeight(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
-                    <label className="text-[10px] text-white/65">{selectedModelElement.type === "Door" || selectedModelElement.type === "Window" || selectedModelElement.type === "Opening" ? "Thickness (Z, m)" : "Depth (Z, m)"}<input value={paramThickness} onChange={(e) => setParamThickness(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                    <label className="text-[10px] text-white/65">
+                      Width (X, m)
+                      <input
+                        value={paramWidth}
+                        onChange={(e) => setParamWidth(e.target.value)}
+                        className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                      />
+                    </label>
+                    <label className="text-[10px] text-white/65">
+                      Height (Y, m)
+                      <input
+                        value={paramHeight}
+                        onChange={(e) => setParamHeight(e.target.value)}
+                        className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                      />
+                    </label>
+                    <label className="text-[10px] text-white/65">
+                      {selectedModelElement.type === "Door" ||
+                      selectedModelElement.type === "Window" ||
+                      selectedModelElement.type === "Opening"
+                        ? "Thickness (Z, m)"
+                        : "Depth (Z, m)"}
+                      <input
+                        value={paramThickness}
+                        onChange={(e) => setParamThickness(e.target.value)}
+                        className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                      />
+                    </label>
                     {(selectedModelElement.type === "Door" ||
                       selectedModelElement.type === "Window" ||
                       selectedModelElement.type === "Opening") && (
-                      <label className="text-[10px] text-white/65">Sill Height (m)<input value={paramSill} onChange={(e) => setParamSill(e.target.value)} className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs" /></label>
+                      <label className="text-[10px] text-white/65">
+                        Sill Height (m)
+                        <input
+                          value={paramSill}
+                          onChange={(e) => setParamSill(e.target.value)}
+                          className="mt-1 w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs"
+                        />
+                      </label>
                     )}
                   </div>
                 )}
@@ -919,7 +993,8 @@ function RightPanel({
                   Apply Parametric Update
                 </button>
                 <p className="text-[10px] text-white/45">
-                  Tip: Select in 3D, then use move/resize handles to adjust position and dimensions.
+                  Tip: Select in 3D, then use move/resize handles to adjust
+                  position and dimensions.
                 </p>
               </div>
             )}
@@ -1219,7 +1294,11 @@ function Viewport({
     );
     if (threeCameraSnapshotRef.current) {
       const saved = threeCameraSnapshotRef.current;
-      camera.position.set(saved.position[0], saved.position[1], saved.position[2]);
+      camera.position.set(
+        saved.position[0],
+        saved.position[1],
+        saved.position[2],
+      );
     } else {
       camera.position.set(20, 20, 20);
     }
@@ -1363,27 +1442,29 @@ function Viewport({
       let geometry: THREE.BufferGeometry;
 
       const p = { ...(el.parameters || {}), ...previewParams };
-      if (el.type === "Wall")
-        {
-          const ws = mergedGeometry.start;
-          const we = mergedGeometry.end;
-          let wallLen = Number(p.length ?? 3);
-          let wallRot = Number(mergedGeometry.rotationY ?? 0);
-          if (ws && we) {
+      if (el.type === "Wall") {
+        const ws = mergedGeometry.start;
+        const we = mergedGeometry.end;
+        let wallLen = Number(p.length ?? 3);
+        let wallRot = Number(mergedGeometry.rotationY ?? 0);
+        if (ws && we) {
           const dx = we[0] - ws[0];
-            const dz = we[2] - ws[2];
-            wallLen = Math.max(0.1, Math.hypot(dx, dz));
-            wallRot = Math.atan2(dz, dx);
-            pos = [(ws[0] + we[0]) * 0.5, Number(p.height ?? 3) * 0.5, (ws[2] + we[2]) * 0.5];
-          }
-          geometry = new THREE.BoxGeometry(
-            wallLen,
-            Number(p.height ?? 3),
-            Number(p.thickness ?? 0.23),
-          );
-          mergedGeometry.rotationY = wallRot;
+          const dz = we[2] - ws[2];
+          wallLen = Math.max(0.1, Math.hypot(dx, dz));
+          wallRot = Math.atan2(dz, dx);
+          pos = [
+            (ws[0] + we[0]) * 0.5,
+            Number(p.height ?? 3) * 0.5,
+            (ws[2] + we[2]) * 0.5,
+          ];
         }
-      else if (el.type === "Column")
+        geometry = new THREE.BoxGeometry(
+          wallLen,
+          Number(p.height ?? 3),
+          Number(p.thickness ?? 0.23),
+        );
+        mergedGeometry.rotationY = wallRot;
+      } else if (el.type === "Column")
         geometry = new THREE.BoxGeometry(
           Number(p.width ?? 0.4),
           Number(p.height ?? 3),
@@ -1514,7 +1595,9 @@ function Viewport({
           const bbox = new THREE.Box3().setFromObject(selectedMesh);
           const size = bbox.getSize(new THREE.Vector3());
           const axisLen = Math.max(2.2, size.length() * 0.55);
-          const axis = threeMoveArrowsRef.current.children[0] as THREE.Group | undefined;
+          const axis = threeMoveArrowsRef.current.children[0] as
+            | THREE.Group
+            | undefined;
           if (axis) {
             axis.scale.set(axisLen / 2.2, axisLen / 2.2, axisLen / 2.2);
           }
@@ -1527,8 +1610,10 @@ function Viewport({
 
     const pickMeshFromPointer = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
-      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threePointerRef.current.x =
+        ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y =
+        -((event.clientY - rect.top) / rect.height) * 2 + 1;
       threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
       const meshes = Array.from(threeMeshMapRef.current.values()).filter(
         (m) => m.visible,
@@ -1539,8 +1624,10 @@ function Viewport({
 
     const pickResizeHandleFromPointer = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
-      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threePointerRef.current.x =
+        ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y =
+        -((event.clientY - rect.top) / rect.height) * 2 + 1;
       threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
       const hits = threeRaycasterRef.current.intersectObjects(
         threeResizeHandlesRef.current,
@@ -1550,16 +1637,22 @@ function Viewport({
     };
 
     const pickAxisHandleFromPointer = (event: PointerEvent) => {
-      if (!threeMoveArrowsRef.current || !threeMoveArrowsRef.current.visible) return null;
+      if (!threeMoveArrowsRef.current || !threeMoveArrowsRef.current.visible)
+        return null;
       const rect = renderer.domElement.getBoundingClientRect();
-      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threePointerRef.current.x =
+        ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y =
+        -((event.clientY - rect.top) / rect.height) * 2 + 1;
       threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
       const axisObjects: THREE.Object3D[] = [];
       threeMoveArrowsRef.current.traverse((obj: THREE.Object3D) => {
         if (obj.userData?.isAxisHandle) axisObjects.push(obj);
       });
-      const hits = threeRaycasterRef.current.intersectObjects(axisObjects, true);
+      const hits = threeRaycasterRef.current.intersectObjects(
+        axisObjects,
+        true,
+      );
       return (hits[0]?.object as THREE.Object3D | undefined) || null;
     };
 
@@ -1618,7 +1711,8 @@ function Viewport({
         setAxisHint(null);
       }
       const mesh = pickMeshFromPointer(event);
-      const nextHover = (mesh?.userData.elementId as string | undefined) || null;
+      const nextHover =
+        (mesh?.userData.elementId as string | undefined) || null;
       threeHoveredElementIdRef.current = nextHover;
       const hostEl = threeHostRef.current;
       if (hostEl) {
@@ -1643,8 +1737,10 @@ function Viewport({
 
     const onPointerDown = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
-      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threePointerRef.current.x =
+        ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y =
+        -((event.clientY - rect.top) / rect.height) * 2 + 1;
       threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
       const meshes = Array.from(threeMeshMapRef.current.values()).filter(
         (m) => m.visible,
@@ -1663,7 +1759,9 @@ function Viewport({
       // Resize handles have priority for the currently selected element.
       const handle = pickResizeHandleFromPointer(event);
       if (handle && selectedModelElementId) {
-        const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
+        const selectedMesh = threeMeshMapRef.current.get(
+          selectedModelElementId,
+        );
         if (selectedMesh) {
           const axis = handle.userData.axis as "x" | "y" | "z";
           const axisDirLocal =
@@ -1681,7 +1779,12 @@ function Viewport({
           const segB = origin.clone().addScaledVector(axisDir, 1000);
           const pOnRay = new THREE.Vector3();
           const pOnSeg = new THREE.Vector3();
-          threeRaycasterRef.current.ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
+          threeRaycasterRef.current.ray.distanceSqToSegment(
+            segA,
+            segB,
+            pOnRay,
+            pOnSeg,
+          );
           const baseScaleAxis =
             axis === "x"
               ? selectedMesh.scale.x
@@ -1709,7 +1812,9 @@ function Viewport({
       // Axis drag starts when clicking axis handles.
       const axisHandle = pickAxisHandleFromPointer(event);
       if (axisHandle && selectedModelElementId) {
-        const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
+        const selectedMesh = threeMeshMapRef.current.get(
+          selectedModelElementId,
+        );
         if (selectedMesh) {
           const axis = axisHandle.userData.axis as "x" | "y" | "z";
           const axisDirLocal =
@@ -1727,7 +1832,12 @@ function Viewport({
           const pOnSeg = new THREE.Vector3();
           const segA = origin.clone().addScaledVector(axisDir, -1000);
           const segB = origin.clone().addScaledVector(axisDir, 1000);
-          threeRaycasterRef.current.ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
+          threeRaycasterRef.current.ray.distanceSqToSegment(
+            segA,
+            segB,
+            pOnRay,
+            pOnSeg,
+          );
           axisDragRef.current = {
             active: true,
             elementId: selectedModelElementId,
@@ -1747,7 +1857,9 @@ function Viewport({
       // Click selected element body: always free-move.
       // Resizing is handled only via explicit resize handles.
       if (id && id === selectedModelElementId) {
-        const selectedMesh = threeMeshMapRef.current.get(selectedModelElementId);
+        const selectedMesh = threeMeshMapRef.current.get(
+          selectedModelElementId,
+        );
         if (selectedMesh) {
           freeMoveDragRef.current = {
             active: true,
@@ -1770,7 +1882,8 @@ function Viewport({
         const id = axisDragRef.current.elementId;
         axisDragRef.current.active = false;
         controls.enabled = true;
-        if (threeAxisGuideRef.current) threeAxisGuideRef.current.visible = false;
+        if (threeAxisGuideRef.current)
+          threeAxisGuideRef.current.visible = false;
         setAxisHint(null);
         if (!id) return;
         const mesh = threeMeshMapRef.current.get(id);
@@ -1780,8 +1893,10 @@ function Viewport({
         const p = { ...(element.parameters || {}) } as Record<string, unknown>;
         if (element.type === "Wall") {
           const prevPos = (element.geometry?.position || [0, 0, 0]) as XYZ;
-          const prevStart = (element.geometry?.start || element.start || [0, 0, 0]) as XYZ;
-          const prevEnd = (element.geometry?.end || element.end || [3, 0, 0]) as XYZ;
+          const prevStart = (element.geometry?.start ||
+            element.start || [0, 0, 0]) as XYZ;
+          const prevEnd = (element.geometry?.end ||
+            element.end || [3, 0, 0]) as XYZ;
           const dx = mesh.position.x - prevPos[0];
           const dz = mesh.position.z - prevPos[2];
           payload.geometry = {
@@ -1812,7 +1927,8 @@ function Viewport({
       freeMoveDragRef.current.active = false;
       resizeDragRef.current.active = false;
       controls.enabled = true;
-      const id = freeMoveDragRef.current.elementId || resizeDragRef.current.elementId;
+      const id =
+        freeMoveDragRef.current.elementId || resizeDragRef.current.elementId;
       if (!id) return;
       const mesh = threeMeshMapRef.current.get(id);
       const element = modelElements.find((el) => el.id === id);
@@ -1823,8 +1939,10 @@ function Viewport({
       if (wasMove) {
         if (element.type === "Wall") {
           const prevPos = (element.geometry?.position || [0, 0, 0]) as XYZ;
-          const prevStart = (element.geometry?.start || element.start || [0, 0, 0]) as XYZ;
-          const prevEnd = (element.geometry?.end || element.end || [3, 0, 0]) as XYZ;
+          const prevStart = (element.geometry?.start ||
+            element.start || [0, 0, 0]) as XYZ;
+          const prevEnd = (element.geometry?.end ||
+            element.end || [3, 0, 0]) as XYZ;
           const dx = mesh.position.x - prevPos[0];
           const dz = mesh.position.z - prevPos[2];
           payload.geometry = {
@@ -1851,9 +1969,12 @@ function Viewport({
         const sz = Math.max(0.1, mesh.scale.z);
         if (element.type === "Wall") {
           nextParams.height = Number(p.height ?? element.height ?? 3) * sy;
-          nextParams.thickness = Number(p.thickness ?? element.thickness ?? 0.23) * sz;
-          const prevStart = (element.geometry?.start || element.start || [0, 0, 0]) as XYZ;
-          const prevEnd = (element.geometry?.end || element.end || [3, 0, 0]) as XYZ;
+          nextParams.thickness =
+            Number(p.thickness ?? element.thickness ?? 0.23) * sz;
+          const prevStart = (element.geometry?.start ||
+            element.start || [0, 0, 0]) as XYZ;
+          const prevEnd = (element.geometry?.end ||
+            element.end || [3, 0, 0]) as XYZ;
           const cx = (prevStart[0] + prevEnd[0]) * 0.5;
           const cz = (prevStart[2] + prevEnd[2]) * 0.5;
           const hx = (prevEnd[0] - prevStart[0]) * 0.5 * sx;
@@ -1896,8 +2017,10 @@ function Viewport({
       const mesh = threeMeshMapRef.current.get(id);
       if (!mesh) return;
       const rect = renderer.domElement.getBoundingClientRect();
-      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threePointerRef.current.x =
+        ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y =
+        -((event.clientY - rect.top) / rect.height) * 2 + 1;
       threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
       const plane = new THREE.Plane(
         new THREE.Vector3(0, 1, 0),
@@ -1916,8 +2039,10 @@ function Viewport({
       const mesh = threeMeshMapRef.current.get(id);
       if (!mesh) return;
       const rect = renderer.domElement.getBoundingClientRect();
-      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threePointerRef.current.x =
+        ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y =
+        -((event.clientY - rect.top) / rect.height) * 2 + 1;
       threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
       const pOnRay = new THREE.Vector3();
       const pOnSeg = new THREE.Vector3();
@@ -1927,12 +2052,18 @@ function Viewport({
       const segB = resizeDragRef.current.axisOrigin
         .clone()
         .addScaledVector(resizeDragRef.current.axisDir, 1000);
-      threeRaycasterRef.current.ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
+      threeRaycasterRef.current.ray.distanceSqToSegment(
+        segA,
+        segB,
+        pOnRay,
+        pOnSeg,
+      );
       const deltaVec = pOnSeg.clone().sub(resizeDragRef.current.startPoint);
       const dist = deltaVec.dot(resizeDragRef.current.axisDir);
       const nextScaleAxis = Math.max(
         0.2,
-        resizeDragRef.current.baseScaleAxis + dist * 0.15 * resizeDragRef.current.direction,
+        resizeDragRef.current.baseScaleAxis +
+          dist * 0.15 * resizeDragRef.current.direction,
       );
       if (resizeDragRef.current.axis === "x") mesh.scale.x = nextScaleAxis;
       if (resizeDragRef.current.axis === "y") mesh.scale.y = nextScaleAxis;
@@ -1945,8 +2076,10 @@ function Viewport({
       const mesh = threeMeshMapRef.current.get(id);
       if (!mesh) return;
       const rect = renderer.domElement.getBoundingClientRect();
-      threePointerRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      threePointerRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      threePointerRef.current.x =
+        ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      threePointerRef.current.y =
+        -((event.clientY - rect.top) / rect.height) * 2 + 1;
       threeRaycasterRef.current.setFromCamera(threePointerRef.current, camera);
       const pOnRay = new THREE.Vector3();
       const pOnSeg = new THREE.Vector3();
@@ -1956,7 +2089,12 @@ function Viewport({
       const segB = axisDragRef.current.axisOrigin
         .clone()
         .addScaledVector(axisDragRef.current.axisDir, 1000);
-      threeRaycasterRef.current.ray.distanceSqToSegment(segA, segB, pOnRay, pOnSeg);
+      threeRaycasterRef.current.ray.distanceSqToSegment(
+        segA,
+        segB,
+        pOnRay,
+        pOnSeg,
+      );
       const delta = pOnSeg.clone().sub(axisDragRef.current.startPoint);
       const dist = delta.dot(axisDragRef.current.axisDir);
       mesh.position
@@ -2093,7 +2231,9 @@ function Viewport({
           const bbox = new THREE.Box3().setFromObject(mesh);
           const size = bbox.getSize(new THREE.Vector3());
           const axisLen = Math.max(2.2, size.length() * 0.55);
-          const axis = threeMoveArrowsRef.current.children[0] as THREE.Group | undefined;
+          const axis = threeMoveArrowsRef.current.children[0] as
+            | THREE.Group
+            | undefined;
           if (axis) {
             axis.scale.set(axisLen / 2.2, axisLen / 2.2, axisLen / 2.2);
           }
@@ -2110,7 +2250,12 @@ function Viewport({
           const hx = Math.max(0.1, size.x * 0.5);
           const hy = Math.max(0.1, size.y * 0.5);
           const hz = Math.max(0.1, size.z * 0.5);
-          const defs: Array<{ axis: "x" | "y" | "z"; dir: 1 | -1; pos: [number, number, number]; color: number }> = [
+          const defs: Array<{
+            axis: "x" | "y" | "z";
+            dir: 1 | -1;
+            pos: [number, number, number];
+            color: number;
+          }> = [
             { axis: "x", dir: 1, pos: [hx * 1.03, 0, 0], color: 0xff4d4d },
             { axis: "x", dir: -1, pos: [-hx * 1.03, 0, 0], color: 0xff4d4d },
             { axis: "y", dir: 1, pos: [0, hy * 1.03, 0], color: 0x4dff8a },
@@ -2124,7 +2269,11 @@ function Viewport({
               14,
               14,
             );
-            const m = new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: 0.95 });
+            const m = new THREE.MeshBasicMaterial({
+              color: def.color,
+              transparent: true,
+              opacity: 0.95,
+            });
             const h = new THREE.Mesh(g, m);
             h.position.set(def.pos[0], def.pos[1], def.pos[2]);
             h.userData.isResizeHandle = true;
@@ -2333,7 +2482,10 @@ function Viewport({
       )}
       {blankModelingMode && axisHint && (
         <div className="absolute left-3 top-3 rounded bg-black/60 border border-white/10 px-2 py-1 text-[10px] text-white/80">
-          Axis {axisHint.axis.toUpperCase()} {axisHint.dragging ? `d${axisHint.axis.toUpperCase()}: ${axisHint.delta.toFixed(2)}m` : "selected"}
+          Axis {axisHint.axis.toUpperCase()}{" "}
+          {axisHint.dragging
+            ? `d${axisHint.axis.toUpperCase()}: ${axisHint.delta.toFixed(2)}m`
+            : "selected"}
         </div>
       )}
     </div>
@@ -2354,9 +2506,7 @@ export default function ViewerPage() {
   const [allElements, setAllElements] = useState<any[]>([]);
   const [explodeFactor, setExplodeFactor] = useState(0);
   const [blankModelingMode, setBlankModelingMode] = useState(false);
-  const [modelElements, setModelElements] = useState<
-    ViewerModelElement[]
-  >([]);
+  const [modelElements, setModelElements] = useState<ViewerModelElement[]>([]);
   const [hiddenModelElementIds, setHiddenModelElementIds] = useState<
     Set<string>
   >(new Set());
@@ -2421,7 +2571,7 @@ export default function ViewerPage() {
                     modelElements.find((el) => el.type === "Wall")?.id || null,
                   offset: 1.5,
                 }
-            : { source: "top-model-toolbar" },
+              : { source: "top-model-toolbar" },
       };
       const res = await fetch(
         `${apiUrl}/api/modeling/projects/${projectId}/elements`,
@@ -2718,7 +2868,9 @@ export default function ViewerPage() {
 
                   const modelEntities = Object.values(
                     viewer.scene.objects,
-                  ).filter((entity: any) => entity.modelId === model.id);
+                  ).filter(
+                    (entity: any) => entity.modelId === model.id,
+                  ) as any[];
 
                   for (const entity of modelEntities) {
                     const entityId = entity.id;

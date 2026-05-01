@@ -1,13 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Support for Turbopack (Next.js 15/16 default)
-  experimental: {
-    turbo: {
-      resolveAlias: {
-        fs: "browser",
-        path: "browser",
-      },
+  // Turbopack aliases keep xeokit from pulling Node-only modules into the browser bundle.
+  turbopack: {
+    resolveAlias: {
+      fs: "./src/lib/browser-fs.ts",
+      path: "./src/lib/browser-path.ts",
+      perf_hooks: "./src/lib/browser-perf-hooks.ts",
     },
   },
   // Support for standard Webpack
@@ -22,7 +21,7 @@ const nextConfig: NextConfig = {
     }
     // Handle "Critical dependency" warning from web-ifc
     config.module.exprContextCritical = false;
-    
+
     return config;
   },
 };
