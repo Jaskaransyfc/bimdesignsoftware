@@ -40,6 +40,7 @@ class Project(Base):
     original_file = Column(String, nullable=False)  # path in MinIO/Local
     xkt_file = Column(String, nullable=True)         # path to converted glB/XKT
     hierarchy = Column(JSON, nullable=True)        # IFC Spatial Structure
+    drawing = Column(JSON, nullable=True)          # 2D CAD Elements
 
     # Module 1 – Project Metadata
     client_name = Column(String, nullable=True)

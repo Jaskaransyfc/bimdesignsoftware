@@ -59,10 +59,10 @@ export default function PlanViewer() {
       .then((data) => {
         const sorted = Array.isArray(data)
           ? [...data].sort((a, b) =>
-              String(b.created_at || "").localeCompare(
-                String(a.created_at || ""),
-              ),
-            )
+            String(b.created_at || "").localeCompare(
+              String(a.created_at || ""),
+            ),
+          )
           : [];
         setProjects(sorted);
         setSelectedProjectId((current) => current || sorted[0]?.id || "");
@@ -133,7 +133,7 @@ export default function PlanViewer() {
       <header className="relative z-10 border-b border-white/5 bg-[#090b14]/70 backdrop-blur-xl">
         <div className="max-w-[1480px] mx-auto px-6 md:px-10 h-16 flex items-center justify-between gap-4">
           <Link
-            href="/"
+            href="/dashboard"
             className="inline-flex items-center gap-2 text-white/45 hover:text-white transition-colors text-sm font-medium"
           >
             <ArrowLeft className="w-4 h-4" />

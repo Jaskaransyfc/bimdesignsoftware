@@ -494,6 +494,13 @@ export default function Dashboard() {
                           >
                             <ExternalLink className="w-4 h-4" />
                           </Link>
+                          <Link
+                            href={`/modeling/${proj.id}`}
+                            className="p-2 rounded-lg text-purple-400 hover:bg-purple-500/10 transition-all"
+                            title="2D Design Studio"
+                          >
+                            <PencilRuler className="w-4 h-4" />
+                          </Link>
                           {canEdit(proj) && (
                             <button
                               onClick={() => {
@@ -587,19 +594,27 @@ export default function Dashboard() {
                       year: "numeric",
                     })}
                   </span>
-                  <Link
-                    href={`/viewer/${proj.id}`}
-                    className={`text-xs font-bold px-4 py-2 rounded-lg transition-all ${
-                      proj.status === "ready"
-                        ? "bg-blue-600 hover:bg-blue-500 text-white"
-                        : "bg-white/5 text-white/30 pointer-events-none"
-                    }`}
-                    onClick={(e) =>
-                      proj.status !== "ready" && e.preventDefault()
-                    }
-                  >
-                    {proj.status === "ready" ? "Open" : "Pending…"}
-                  </Link>
+                  <div className="flex gap-2">
+                    <Link
+                      href={`/modeling/${proj.id}`}
+                      className="text-xs font-bold px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-all"
+                    >
+                      Design
+                    </Link>
+                    <Link
+                      href={`/viewer/${proj.id}`}
+                      className={`text-xs font-bold px-4 py-2 rounded-lg transition-all ${
+                        proj.status === "ready"
+                          ? "bg-blue-600 hover:bg-blue-500 text-white"
+                          : "bg-white/5 text-white/30 pointer-events-none"
+                      }`}
+                      onClick={(e) =>
+                        proj.status !== "ready" && e.preventDefault()
+                      }
+                    >
+                      {proj.status === "ready" ? "View" : "Pending…"}
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}

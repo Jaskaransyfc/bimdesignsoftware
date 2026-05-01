@@ -1,4 +1,5 @@
 # backend/app/api/projects.py
+from typing import Any
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -291,3 +292,55 @@ async def get_plan_view_dxf(project_id: str, db: AsyncSession = Depends(get_db))
             "Cache-Control": "no-store, max-age=0",
         }
     )
+
+
+@router.post("/{project_id}/drawing")
+async def save_drawing(
+    project_id: str, 
+    drawing_data: dict[str, Any],
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Save 2D drawing for a project
+    """
+    try:
+        project = await db.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        elements = drawing_data.get("elements", [])
+        project.drawing = elements
+        
+        await db.commit()
+        
+        return {
+            "success": True,
+            "message": "Drawing saved successfully",
+            "elementCount": len(elements),
+        }
+    
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{project_id}/drawing")
+async def get_drawing(project_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Retrieve 2D drawing for a project
+    """
+    try:
+        project = await db.get(Project, project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+            
+        elements = project.drawing or []
+        
+        return {
+            "projectId": project_id,
+            "elements": elements,
+            "message": "Drawing retrieved successfully"
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
