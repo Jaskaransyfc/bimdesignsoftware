@@ -28,6 +28,7 @@ import {
   UsersRound,
   GitCompareArrows,
   Sigma,
+  Workflow,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -253,6 +254,14 @@ export default function Dashboard() {
               >
                 <GitCompareArrows className="w-4 h-4" /> Version Diff
               </Link>
+              {projects.length > 0 && (
+                <Link
+                  href={`/modules/${filtered[0]?.id || projects[0]?.id}`}
+                  className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
+                >
+                  <Workflow className="w-4 h-4" /> Advanced Modules
+                </Link>
+              )}
               <Link
                 href="/structural-check"
                 className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-xl font-bold text-[11px] flex items-center gap-2 transition-all border border-white/10 uppercase tracking-wider whitespace-nowrap"
@@ -501,6 +510,13 @@ export default function Dashboard() {
                           >
                             <PencilRuler className="w-4 h-4" />
                           </Link>
+                          <Link
+                            href={`/modules/${proj.id}`}
+                            className="p-2 rounded-lg text-cyan-400 hover:bg-cyan-500/10 transition-all"
+                            title="Advanced Modules"
+                          >
+                            <Workflow className="w-4 h-4" />
+                          </Link>
                           {canEdit(proj) && (
                             <button
                               onClick={() => {
@@ -600,6 +616,12 @@ export default function Dashboard() {
                       className="text-xs font-bold px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-all"
                     >
                       Design
+                    </Link>
+                    <Link
+                      href={`/modules/${proj.id}`}
+                      className="text-xs font-bold px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-all"
+                    >
+                      Modules
                     </Link>
                     <Link
                       href={`/viewer/${proj.id}`}

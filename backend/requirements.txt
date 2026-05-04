@@ -18,3 +18,4 @@ shapely
 svgwrite
 reportlab
 pandas
+networkx

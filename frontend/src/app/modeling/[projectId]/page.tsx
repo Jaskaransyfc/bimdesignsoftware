@@ -16,6 +16,7 @@ import {
   PanelRightOpen,
   Layers,
   Home,
+  Workflow,
 } from "lucide-react";
 import CADEditor from "@/components/CADEditor";
 import Model3DPreview from "@/components/Model3DPreview";
@@ -128,10 +129,7 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
       {/* Header - Revit Style */}
       <header className="bg-slate-950 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link
-            href="/"
-            className="text-slate-400 hover:text-white transition"
-          >
+          <Link href="/" className="text-slate-400 hover:text-white transition">
             <Home className="w-5 h-5" />
           </Link>
           <div className="border-l border-slate-700 pl-4">
@@ -146,19 +144,21 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
           <div className="flex gap-1 bg-slate-800 rounded-lg p-1 mr-4">
             <button
               onClick={() => setView("2d")}
-              className={`px-4 py-2 rounded transition text-sm font-medium ${view === "2d"
+              className={`px-4 py-2 rounded transition text-sm font-medium ${
+                view === "2d"
                   ? "bg-blue-600 text-white"
                   : "text-slate-400 hover:text-white"
-                }`}
+              }`}
             >
               2D Plan
             </button>
             <button
               onClick={() => setView("3d")}
-              className={`px-4 py-2 rounded transition text-sm font-medium ${view === "3d"
+              className={`px-4 py-2 rounded transition text-sm font-medium ${
+                view === "3d"
                   ? "bg-blue-600 text-white"
                   : "text-slate-400 hover:text-white"
-                }`}
+              }`}
             >
               3D Model
             </button>
@@ -175,10 +175,11 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
 
           <button
             onClick={() => setShowProperties(!showProperties)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${showProperties
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+              showProperties
                 ? "bg-blue-600 text-white"
                 : "bg-slate-800 text-slate-300 hover:text-white"
-              }`}
+            }`}
           >
             <PanelRightOpen className="w-4 h-4" /> Panel
           </button>
@@ -196,6 +197,13 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
           >
             <FileDown className="w-4 h-4" /> BOQ
           </button>
+
+          <Link
+            href={`/modules/${projectId}`}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition border border-slate-600"
+          >
+            <Workflow className="w-4 h-4" /> Modules
+          </Link>
         </div>
       </header>
 
@@ -235,19 +243,21 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
               <div className="flex gap-2 mb-6 bg-slate-900 p-1 rounded-lg">
                 <button
                   onClick={() => setActivePanelTab("info")}
-                  className={`flex-1 px-3 py-2 text-sm rounded font-medium transition ${activePanelTab === "info"
+                  className={`flex-1 px-3 py-2 text-sm rounded font-medium transition ${
+                    activePanelTab === "info"
                       ? "bg-slate-700 text-white"
                       : "text-slate-400 hover:text-white"
-                    }`}
+                  }`}
                 >
                   Info
                 </button>
                 <button
                   onClick={() => setActivePanelTab("materials")}
-                  className={`flex-1 px-3 py-2 text-sm rounded font-medium transition ${activePanelTab === "materials"
+                  className={`flex-1 px-3 py-2 text-sm rounded font-medium transition ${
+                    activePanelTab === "materials"
                       ? "bg-slate-700 text-white"
                       : "text-slate-400 hover:text-white"
-                    }`}
+                  }`}
                 >
                   Materials
                 </button>
@@ -327,7 +337,8 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                               {wall.material}
                             </div>
                             <div className="text-slate-400 mt-1">
-                              {formatImperial(wall.totalLength * 1000)} × {formatImperial(wall.height)}
+                              {formatImperial(wall.totalLength * 1000)} ×{" "}
+                              {formatImperial(wall.height)}
                             </div>
                             <div className="text-blue-400 font-medium mt-1">
                               {(wall.totalArea * 10.764).toFixed(1)} sq ft
@@ -353,7 +364,8 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                             className="p-3 bg-slate-900 rounded border border-slate-700"
                           >
                             <div className="font-semibold text-white">
-                              Door {idx + 1} - {formatImperial(door.width)} x {formatImperial(door.height)}
+                              Door {idx + 1} - {formatImperial(door.width)} x{" "}
+                              {formatImperial(door.height)}
                             </div>
                             <div className="text-slate-400 mt-1">
                               {door.material}

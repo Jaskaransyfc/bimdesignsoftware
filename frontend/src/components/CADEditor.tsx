@@ -452,14 +452,9 @@ export default function CADEditor({
     );
   };
 
-  const getOpeningDragBound = (
-    opening: Door | Window,
-    hostWall: Wall,
-  ): ((pos: Point2D) => Point2D) => {
-    return (pos: Point2D) => {
-      const { position } = constrainOpeningOnWall(pos, hostWall, opening.width);
-      return position;
-    };
+  const getOpeningDragBound = (opening: Door | Window, hostWall: Wall) => {
+    return (pos: Point2D) =>
+      constrainOpeningOnWall(pos, hostWall, opening.width).position;
   };
 
   const updateSelectedDoor = (updates: Partial<Door>) => {
@@ -604,11 +599,16 @@ export default function CADEditor({
           dragBoundFunc={getOpeningDragBound(door, hostWall)}
           onClick={() => setSelectedIds([door.id])}
           onDragStart={() => setSelectedIds([door.id])}
-          onDragEnd={(e) => {
-            const pointerPos = { x: e.target.x(), y: e.target.y() };
+          onDragMove={(e) => {
             updateOpeningPosition(door.id, {
-              x: pointerPos.x,
-              y: pointerPos.y,
+              x: e.target.x(),
+              y: e.target.y(),
+            });
+          }}
+          onDragEnd={(e) => {
+            updateOpeningPosition(door.id, {
+              x: e.target.x(),
+              y: e.target.y(),
             });
           }}
         />
@@ -659,11 +659,16 @@ export default function CADEditor({
           dragBoundFunc={getOpeningDragBound(window_, hostWall)}
           onClick={() => setSelectedIds([window_.id])}
           onDragStart={() => setSelectedIds([window_.id])}
-          onDragEnd={(e) => {
-            const pointerPos = { x: e.target.x(), y: e.target.y() };
+          onDragMove={(e) => {
             updateOpeningPosition(window_.id, {
-              x: pointerPos.x,
-              y: pointerPos.y,
+              x: e.target.x(),
+              y: e.target.y(),
+            });
+          }}
+          onDragEnd={(e) => {
+            updateOpeningPosition(window_.id, {
+              x: e.target.x(),
+              y: e.target.y(),
             });
           }}
         />
