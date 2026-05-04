@@ -1,7 +1,16 @@
 "use client";
 
 import React, { useRef, useEffect, useState } from "react";
-import { Line, Rect, Circle, Stage, Layer, Group, Arc, Text as KonvaText } from "react-konva";
+import {
+  Line,
+  Rect,
+  Circle,
+  Stage,
+  Layer,
+  Group,
+  Arc,
+  Text as KonvaText,
+} from "react-konva";
 import Konva from "konva";
 import {
   Element,
@@ -13,7 +22,19 @@ import {
   Point2D,
   ToolType,
 } from "@/types/modeling";
-import { Plus, Minus, Trash2, Save, Square, Move, Hand, Type, Ruler, DoorOpen as DoorIcon, Layout } from "lucide-react";
+import {
+  Plus,
+  Minus,
+  Trash2,
+  Save,
+  Square,
+  Move,
+  Hand,
+  Type,
+  Ruler,
+  DoorOpen as DoorIcon,
+  Layout,
+} from "lucide-react";
 import { formatImperial } from "@/lib/calculations";
 
 interface CADEditorProps {
@@ -78,8 +99,11 @@ export default function CADEditor({
   }, []);
 
   useEffect(() => {
-    setElements(initialElements);
-  }, [initialElements]);
+    // Avoid parent-child feedback loops: only hydrate from props when local editor is empty.
+    if (elements.length === 0 && initialElements.length > 0) {
+      setElements(initialElements);
+    }
+  }, [initialElements, elements.length]);
 
   useEffect(() => {
     onElementsChange?.(elements);
@@ -125,7 +149,7 @@ export default function CADEditor({
   };
 
   const findWallAt = (p: Point2D) => {
-    let nearest: Wall | null = null;
+    let nearest: Wall | undefined;
     let nearestDistance = Number.POSITIVE_INFINITY;
 
     for (const wall of walls) {
@@ -147,20 +171,16 @@ export default function CADEditor({
   ) => {
     if (!wall) return { position: p, orientation: 0 };
     const { len, dir } = getWallDirection(wall);
-    const openingHalf = (openingWidthMm / MM_TO_CANVAS) / 2;
-    
+    const openingHalf = openingWidthMm / MM_TO_CANVAS / 2;
+
     const hit = projectPointOnWall(p, wall);
-    
+
     // Snapping logic - snap to center
     let t = hit.t;
     if (Math.abs(t - 0.5) < 0.05) t = 0.5;
 
     // Clamp distance to keep the opening fully within the wall
-    const snappedDistance = clamp(
-      t * len, 
-      openingHalf, 
-      len - openingHalf
-    );
+    const snappedDistance = clamp(t * len, openingHalf, len - openingHalf);
 
     const orientation = Math.atan2(dir.y, dir.x) * (180 / Math.PI);
     const snappedPos = {
@@ -201,7 +221,7 @@ export default function CADEditor({
     } else if (activeTool === "door" || activeTool === "window") {
       const pos = getMousePos(e);
       const hostWall = findWallAt(pos);
-      
+
       const openingWidth = activeTool === "door" ? 900 : 1200;
       const { position, orientation } = constrainOpeningOnWall(
         pos,
@@ -222,7 +242,7 @@ export default function CADEditor({
               orientation,
               openingSide: "inside",
               material: "Wood",
-              fireRating: "-"
+              fireRating: "-",
             }
           : {
               id: `win_${Date.now()}`,
@@ -233,7 +253,7 @@ export default function CADEditor({
               wallId: hostWall?.id,
               orientation,
               material: "Glass",
-              glazing: "Clear"
+              glazing: "Clear",
             };
 
       setElements((prev) => [...prev, newElement]);
@@ -397,16 +417,21 @@ export default function CADEditor({
         if (el.id !== elementId) return el;
         if (el.type === "door" || el.type === "window") {
           const opening = el as Door | Window;
-          // Try to find a new wall at the mouse position
-          let hostWall = findWallAt(newPos);
-          
-          // If no new wall found, but it was already on a wall, keep it on the same wall
-          if (!hostWall && opening.wallId) {
-            hostWall = prev.find(w => w.id === opening.wallId && w.type === "wall") as Wall;
+          // Prefer current host wall to avoid jumpy re-assignment while dragging.
+          let hostWall = opening.wallId
+            ? (prev.find(
+                (w) => w.id === opening.wallId && w.type === "wall",
+              ) as Wall | undefined)
+            : undefined;
+
+          // If not attached yet, try nearest wall.
+          if (!hostWall) {
+            hostWall = findWallAt(newPos);
           }
 
+          // If there is still no host wall, keep the element unchanged so it never disappears.
           if (!hostWall) {
-            return { ...el, position: newPos, wallId: undefined };
+            return el;
           }
 
           const { position, orientation } = constrainOpeningOnWall(
@@ -414,7 +439,7 @@ export default function CADEditor({
             hostWall,
             opening.width,
           );
-          
+
           return {
             ...el,
             position,
@@ -425,6 +450,16 @@ export default function CADEditor({
         return el;
       }),
     );
+  };
+
+  const getOpeningDragBound = (
+    opening: Door | Window,
+    hostWall: Wall,
+  ): ((pos: Point2D) => Point2D) => {
+    return (pos: Point2D) => {
+      const { position } = constrainOpeningOnWall(pos, hostWall, opening.width);
+      return position;
+    };
   };
 
   const updateSelectedDoor = (updates: Partial<Door>) => {
@@ -566,12 +601,14 @@ export default function CADEditor({
           stroke="#111827"
           strokeWidth={2}
           draggable={activeTool === "select"}
+          dragBoundFunc={getOpeningDragBound(door, hostWall)}
           onClick={() => setSelectedIds([door.id])}
           onDragStart={() => setSelectedIds([door.id])}
           onDragEnd={(e) => {
+            const pointerPos = { x: e.target.x(), y: e.target.y() };
             updateOpeningPosition(door.id, {
-              x: e.target.x(),
-              y: e.target.y(),
+              x: pointerPos.x,
+              y: pointerPos.y,
             });
           }}
         />
@@ -619,12 +656,14 @@ export default function CADEditor({
           stroke="#082f49"
           strokeWidth={2}
           draggable={activeTool === "select"}
+          dragBoundFunc={getOpeningDragBound(window_, hostWall)}
           onClick={() => setSelectedIds([window_.id])}
           onDragStart={() => setSelectedIds([window_.id])}
           onDragEnd={(e) => {
+            const pointerPos = { x: e.target.x(), y: e.target.y() };
             updateOpeningPosition(window_.id, {
-              x: e.target.x(),
-              y: e.target.y(),
+              x: pointerPos.x,
+              y: pointerPos.y,
             });
           }}
         />
@@ -637,14 +676,20 @@ export default function CADEditor({
     const dy = dim.endPoint.y - dim.startPoint.y;
     const angle = Math.atan2(dy, dx);
     const length = Math.hypot(dx, dy);
-    
+
     // Normal for offset
     const nx = -Math.sin(angle);
     const ny = Math.cos(angle);
     const offset = 20;
 
-    const p1 = { x: dim.startPoint.x + nx * offset, y: dim.startPoint.y + ny * offset };
-    const p2 = { x: dim.endPoint.x + nx * offset, y: dim.endPoint.y + ny * offset };
+    const p1 = {
+      x: dim.startPoint.x + nx * offset,
+      y: dim.startPoint.y + ny * offset,
+    };
+    const p2 = {
+      x: dim.endPoint.x + nx * offset,
+      y: dim.endPoint.y + ny * offset,
+    };
 
     return (
       <Group
@@ -657,8 +702,14 @@ export default function CADEditor({
               el.id === dim.id
                 ? {
                     ...el,
-                    startPoint: { x: (el as Dimension).startPoint.x + e.target.x(), y: (el as Dimension).startPoint.y + e.target.y() },
-                    endPoint: { x: (el as Dimension).endPoint.x + e.target.x(), y: (el as Dimension).endPoint.y + e.target.y() },
+                    startPoint: {
+                      x: (el as Dimension).startPoint.x + e.target.x(),
+                      y: (el as Dimension).startPoint.y + e.target.y(),
+                    },
+                    endPoint: {
+                      x: (el as Dimension).endPoint.x + e.target.x(),
+                      y: (el as Dimension).endPoint.y + e.target.y(),
+                    },
                   }
                 : el,
             ),
@@ -934,14 +985,17 @@ export default function CADEditor({
               </Group>
             )}
 
-            {isDrawing && activeTool === "dimension" && startPoint && endPoint && (
-              <Line
-                points={[startPoint.x, startPoint.y, endPoint.x, endPoint.y]}
-                stroke="#3b82f6"
-                strokeWidth={1}
-                dash={[5, 5]}
-              />
-            )}
+            {isDrawing &&
+              activeTool === "dimension" &&
+              startPoint &&
+              endPoint && (
+                <Line
+                  points={[startPoint.x, startPoint.y, endPoint.x, endPoint.y]}
+                  stroke="#3b82f6"
+                  strokeWidth={1}
+                  dash={[5, 5]}
+                />
+              )}
           </Layer>
         </Stage>
       </div>

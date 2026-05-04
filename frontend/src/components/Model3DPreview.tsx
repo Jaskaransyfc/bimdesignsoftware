@@ -119,11 +119,17 @@ export default function Model3DPreview({
       openings.forEach((op) => {
         const opW = op.width / MM_SCALE;
         const opH = op.height / MM_SCALE;
-        
+
         // Calculate offset from wall start
-        const dist = Math.hypot(op.position.x - wall.startPoint.x, op.position.y - wall.startPoint.y) / PLAN_SCALE;
-        const sillH = (op.type === "window" ? (op as any).position.z || 1000 : 0) / MM_SCALE;
-        
+        const dist =
+          Math.hypot(
+            op.position.x - wall.startPoint.x,
+            op.position.y - wall.startPoint.y,
+          ) / PLAN_SCALE;
+        const sillH =
+          (op.type === "window" ? (op as any).position.z || 1000 : 0) /
+          MM_SCALE;
+
         const hole = new THREE.Path();
         const xStart = dist - opW / 2;
         hole.moveTo(xStart, sillH);
@@ -134,7 +140,7 @@ export default function Model3DPreview({
         shape.holes.push(hole);
       });
 
-      const geometry = new THREE.ExtrudeGeometry(shape, {
+      const geometry = new (THREE as any).ExtrudeGeometry(shape, {
         depth: thickness,
         bevelEnabled: false,
       });
@@ -149,10 +155,10 @@ export default function Model3DPreview({
       mesh.position.set(
         wall.startPoint.x / PLAN_SCALE,
         0,
-        wall.startPoint.y / PLAN_SCALE
+        wall.startPoint.y / PLAN_SCALE,
       );
       mesh.rotation.y = -Math.atan2(dy, dx);
-      
+
       // Offset by half thickness to center the wall on the line
       const angle = -Math.atan2(dy, dx);
       mesh.position.x += Math.sin(angle) * (thickness / 2);
@@ -163,13 +169,21 @@ export default function Model3DPreview({
       // Add corner fillers (columns) to hide gaps between walls
       const fillerGeom = new THREE.BoxGeometry(thickness, height, thickness);
       const fillerMat = material;
-      
+
       const startFiller = new THREE.Mesh(fillerGeom, fillerMat);
-      startFiller.position.set(wall.startPoint.x / PLAN_SCALE, height / 2, wall.startPoint.y / PLAN_SCALE);
+      startFiller.position.set(
+        wall.startPoint.x / PLAN_SCALE,
+        height / 2,
+        wall.startPoint.y / PLAN_SCALE,
+      );
       scene.add(startFiller);
-      
+
       const endFiller = new THREE.Mesh(fillerGeom, fillerMat);
-      endFiller.position.set(wall.endPoint.x / PLAN_SCALE, height / 2, wall.endPoint.y / PLAN_SCALE);
+      endFiller.position.set(
+        wall.endPoint.x / PLAN_SCALE,
+        height / 2,
+        wall.endPoint.y / PLAN_SCALE,
+      );
       scene.add(endFiller);
     });
 
@@ -192,7 +206,12 @@ export default function Model3DPreview({
       const pz_base = door.position.y / PLAN_SCALE;
 
       // Apply the same offset as the wall to center it
-      const angle = hostWall ? -Math.atan2(hostWall.endPoint.y - hostWall.startPoint.y, hostWall.endPoint.x - hostWall.startPoint.x) : 0;
+      const angle = hostWall
+        ? -Math.atan2(
+            hostWall.endPoint.y - hostWall.startPoint.y,
+            hostWall.endPoint.x - hostWall.startPoint.x,
+          )
+        : 0;
       const wallThickness = hostWall ? hostWall.thickness / MM_SCALE : 0.46;
       const px = px_base + Math.sin(angle) * (wallThickness / 2);
       const pz = pz_base + Math.cos(angle) * (wallThickness / 2);
@@ -206,88 +225,123 @@ export default function Model3DPreview({
       // Add a small handle for visibility
       const handle = new THREE.Mesh(
         new THREE.SphereGeometry(0.05),
-        new THREE.MeshStandardMaterial({ color: "#fbbf24" })
+        new THREE.MeshStandardMaterial({ color: "#fbbf24" }),
       );
-      handle.position.set(px + (vectors?.dir.x || 0) * (doorW * 0.4), doorH / 2, pz + (vectors?.dir.z || 0) * (doorW * 0.4));
+      handle.position.set(
+        px + (vectors?.dir.x || 0) * (doorW * 0.4),
+        doorH / 2,
+        pz + (vectors?.dir.z || 0) * (doorW * 0.4),
+      );
       scene.add(handle);
 
       // Create frame as a dark wooden border
       const frameColor = "#522b11";
-      const frameMaterial = new THREE.MeshStandardMaterial({ color: frameColor, roughness: 0.7 });
-      const frameThickness = hostWall ? (hostWall.thickness / MM_SCALE) + 0.05 : 0.5;
-      
+      const frameMaterial = new THREE.MeshStandardMaterial({
+        color: frameColor,
+        roughness: 0.7,
+      });
+      const frameThickness = hostWall
+        ? hostWall.thickness / MM_SCALE + 0.05
+        : 0.5;
+
       // Top frame
       const topFrame = new THREE.Mesh(
         new THREE.BoxGeometry(doorW + 0.1, 0.1, frameThickness),
-        frameMaterial
+        frameMaterial,
       );
       topFrame.position.set(px, doorH + 0.05, pz);
-      if (vectors) topFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+      if (vectors)
+        topFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
       scene.add(topFrame);
 
       // Left frame
       const leftFrame = new THREE.Mesh(
         new THREE.BoxGeometry(0.1, doorH, frameThickness),
-        frameMaterial
+        frameMaterial,
       );
       const lx = px - (vectors?.dir.x || 0) * (doorW / 2 + 0.05);
       const lz = pz - (vectors?.dir.z || 0) * (doorW / 2 + 0.05);
       leftFrame.position.set(lx, doorH / 2, lz);
-      if (vectors) leftFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+      if (vectors)
+        leftFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
       scene.add(leftFrame);
 
       // Right frame
       const rightFrame = new THREE.Mesh(
         new THREE.BoxGeometry(0.1, doorH, frameThickness),
-        frameMaterial
+        frameMaterial,
       );
       const rx = px + (vectors?.dir.x || 0) * (doorW / 2 + 0.05);
       const rz = pz + (vectors?.dir.z || 0) * (doorW / 2 + 0.05);
       rightFrame.position.set(rx, doorH / 2, rz);
-      if (vectors) rightFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+      if (vectors)
+        rightFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
       scene.add(rightFrame);
-
     });
 
     model3D.windows.forEach((window_) => {
       const winW = Math.max(window_.width / MM_SCALE, 0.1);
       const winH = Math.max(window_.height / MM_SCALE, 0.1);
-      const hostWall = window_.wallId ? wallById.get(window_.wallId) : undefined;
+      const hostWall = window_.wallId
+        ? wallById.get(window_.wallId)
+        : undefined;
       const vectors = hostWall ? getWallVectors(hostWall) : null;
       const sillHeight = (window_.position.z || 1000) / MM_SCALE;
 
-      const frameMaterial = new THREE.MeshStandardMaterial({ color: "#475569", roughness: 0.8 });
-      
+      const frameMaterial = new THREE.MeshStandardMaterial({
+        color: "#475569",
+        roughness: 0.8,
+      });
+
       // Window frame (simplified as a hollow border using 4 boxes)
       const fT = 0.1; // frame thickness
-      const frameThickness = hostWall ? (hostWall.thickness / MM_SCALE) + 0.02 : 0.48;
+      const frameThickness = hostWall
+        ? hostWall.thickness / MM_SCALE + 0.02
+        : 0.48;
       const winFrame = new THREE.Group();
-      
-      const top = new THREE.Mesh(new THREE.BoxGeometry(winW + fT, fT, frameThickness), frameMaterial);
+
+      const top = new THREE.Mesh(
+        new THREE.BoxGeometry(winW + fT, fT, frameThickness),
+        frameMaterial,
+      );
       top.position.y = winH / 2 + fT / 2;
-      
-      const bottom = new THREE.Mesh(new THREE.BoxGeometry(winW + fT, fT, frameThickness), frameMaterial);
+
+      const bottom = new THREE.Mesh(
+        new THREE.BoxGeometry(winW + fT, fT, frameThickness),
+        frameMaterial,
+      );
       bottom.position.y = -winH / 2 - fT / 2;
-      
-      const left = new THREE.Mesh(new THREE.BoxGeometry(fT, winH, frameThickness), frameMaterial);
+
+      const left = new THREE.Mesh(
+        new THREE.BoxGeometry(fT, winH, frameThickness),
+        frameMaterial,
+      );
       left.position.x = -winW / 2 - fT / 2;
-      
-      const right = new THREE.Mesh(new THREE.BoxGeometry(fT, winH, frameThickness), frameMaterial);
+
+      const right = new THREE.Mesh(
+        new THREE.BoxGeometry(fT, winH, frameThickness),
+        frameMaterial,
+      );
       right.position.x = winW / 2 + fT / 2;
-      
+
       winFrame.add(top, bottom, left, right);
-      
+
       const px_base = window_.position.x / PLAN_SCALE;
       const pz_base = window_.position.y / PLAN_SCALE;
-      const angle = hostWall ? -Math.atan2(hostWall.endPoint.y - hostWall.startPoint.y, hostWall.endPoint.x - hostWall.startPoint.x) : 0;
+      const angle = hostWall
+        ? -Math.atan2(
+            hostWall.endPoint.y - hostWall.startPoint.y,
+            hostWall.endPoint.x - hostWall.startPoint.x,
+          )
+        : 0;
       const wallThickness = hostWall ? hostWall.thickness / MM_SCALE : 0.46;
       const px = px_base + Math.sin(angle) * (wallThickness / 2);
       const pz = pz_base + Math.cos(angle) * (wallThickness / 2);
 
       winFrame.position.set(px, sillHeight + winH / 2, pz);
-      if (vectors) winFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+      if (vectors)
+        winFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
       scene.add(winFrame);
-
 
       const glass = new THREE.Mesh(
         new THREE.BoxGeometry(winW - 0.05, winH - 0.05, 0.1),
