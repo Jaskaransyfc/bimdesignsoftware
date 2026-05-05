@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import CADEditor from "@/components/CADEditor";
 import Model3DPreview from "@/components/Model3DPreview";
+import FurnitureModelImport from "@/components/FurnitureModelImport";
 import { Element } from "@/types/modeling";
 import { generateProjectBOM, calculateDrawingStats } from "@/lib/calculations";
 import { convert2DTo3D, exportModelAsJSON } from "@/lib/geometry3d";
@@ -43,6 +44,7 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [modelsRefresh, setModelsRefresh] = useState(0);
 
   useEffect(() => {
     setMounted(true);
@@ -140,38 +142,28 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
 
         {/* Main Controls */}
         <div className="flex items-center gap-2">
-          {/* View Toggle */}
-          <div className="flex gap-1 bg-slate-800 rounded-lg p-1 mr-4">
+          <div className="flex items-center gap-1 rounded-lg bg-slate-900 border border-slate-700 p-1">
             <button
               onClick={() => setView("2d")}
-              className={`px-4 py-2 rounded transition text-sm font-medium ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition ${
                 view === "2d"
                   ? "bg-blue-600 text-white"
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              2D Plan
+              <Layers className="w-4 h-4" /> 2D
             </button>
             <button
               onClick={() => setView("3d")}
-              className={`px-4 py-2 rounded transition text-sm font-medium ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition ${
                 view === "3d"
                   ? "bg-blue-600 text-white"
                   : "text-slate-400 hover:text-white"
               }`}
             >
-              3D Model
+              <Eye className="w-4 h-4" /> 3D
             </button>
           </div>
-
-          {/* Action Buttons */}
-          <button
-            onClick={() => handleSaveDrawing(elements)}
-            disabled={isSaving}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition disabled:opacity-50"
-          >
-            <Save className="w-4 h-4" /> {isSaving ? "Saving..." : "Save"}
-          </button>
 
           <button
             onClick={() => setShowProperties(!showProperties)}
@@ -181,7 +173,14 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                 : "bg-slate-800 text-slate-300 hover:text-white"
             }`}
           >
-            <PanelRightOpen className="w-4 h-4" /> Panel
+            <PanelRightOpen className="w-4 h-4" /> Properties
+          </button>
+          <button
+            onClick={() => handleSaveDrawing(elements)}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition disabled:opacity-50"
+          >
+            <Save className="w-4 h-4" /> {isSaving ? "Saving..." : "Save"}
           </button>
 
           <button
@@ -198,6 +197,11 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
             <FileDown className="w-4 h-4" /> BOQ
           </button>
 
+          <FurnitureModelImport 
+            projectId={projectId}
+            onImportSuccess={() => setModelsRefresh(prev => prev + 1)}
+          />
+
           <Link
             href={`/modules/${projectId}`}
             className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition border border-slate-600"
@@ -207,10 +211,9 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Content - Single View */}
       <div className="flex flex-1 overflow-hidden gap-0">
-        {/* CAD Editor */}
-        <div className="flex-1 bg-slate-800">
+        <div className="flex-1 bg-slate-800 min-w-0">
           {view === "2d" ? (
             <CADEditor
               projectId={projectId}
@@ -219,17 +222,28 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
               initialElements={elements}
             />
           ) : (
-            <div className="w-full h-full">
-              <Model3DPreview elements={elements} projectId={projectId} />
-            </div>
+            <Model3DPreview 
+              key={`3d-${modelsRefresh}`}
+              elements={elements} 
+              projectId={projectId} 
+            />
           )}
         </div>
 
         {/* Right Panel - Properties & BOM */}
-        {showProperties && (
-          <aside
-            className="bg-slate-800 border-l border-slate-700 overflow-y-auto transition-all"
-            style={{ width: `${panelWidth}px` }}
+        <aside
+          className={`bg-slate-800 border-l border-slate-700 overflow-hidden transition-all duration-200 ${
+            showProperties ? "overflow-y-auto" : "border-l-0"
+          }`}
+          style={{ width: showProperties ? `${panelWidth}px` : "0px" }}
+        >
+          <div
+            className="transition-opacity duration-200"
+            style={{
+              width: `${panelWidth}px`,
+              opacity: showProperties ? 1 : 0,
+              pointerEvents: showProperties ? "auto" : "none",
+            }}
           >
             <div className="p-5">
               {/* Header */}
@@ -456,8 +470,8 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                 </div>
               )}
             </div>
-          </aside>
-        )}
+          </div>
+        </aside>
       </div>
 
       {/* Status Bar */}

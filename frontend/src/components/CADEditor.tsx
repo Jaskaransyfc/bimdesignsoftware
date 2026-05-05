@@ -21,6 +21,8 @@ import {
   TextElement,
   Point2D,
   ToolType,
+  Level,
+  FurnitureItem,
 } from "@/types/modeling";
 import {
   Plus,
@@ -34,6 +36,7 @@ import {
   Ruler,
   DoorOpen as DoorIcon,
   Layout,
+  Package2,
 } from "lucide-react";
 import { formatImperial } from "@/lib/calculations";
 
@@ -79,6 +82,33 @@ export default function CADEditor({
   const [zoom, setZoom] = useState(1);
   const [viewport, setViewport] = useState({ width: 1200, height: 700 });
 
+  // Levels and Furniture
+  const [levels, setLevels] = useState<Level[]>([]);
+  const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
+  const [furnitureItems, setFurnitureItems] = useState<FurnitureItem[]>([]);
+  const [furnitureLibrary, setFurnitureLibrary] = useState<any[]>([]);
+  const [selectedFurnitureType, setSelectedFurnitureType] = useState<
+    string | null
+  >(null);
+  const [isLoadingLevels, setIsLoadingLevels] = useState(false);
+  const [isSavingFurniture, setIsSavingFurniture] = useState(false);
+
+  const normalizeFurnitureItem = (item: any): FurnitureItem => ({
+    id: item.id,
+    projectId: item.projectId ?? item.project_id,
+    levelId: item.levelId ?? item.level_id,
+    assetType: item.assetType ?? item.asset_type,
+    family: item.family,
+    x: Number(item.x ?? 0),
+    y: Number(item.y ?? 0),
+    z: Number(item.z ?? 0),
+    width: item.width ?? undefined,
+    depth: item.depth ?? undefined,
+    height: item.height ?? undefined,
+    materialId: item.materialId ?? item.material_id,
+    metadata: item.metadata ?? {},
+  });
+
   // Ensure client-side rendering
   useEffect(() => {
     setIsClient(true);
@@ -95,8 +125,114 @@ export default function CADEditor({
 
     updateViewport();
     window.addEventListener("resize", updateViewport);
-    return () => window.removeEventListener("resize", updateViewport);
+
+    const observer = new ResizeObserver(() => {
+      updateViewport();
+    });
+
+    if (canvasWrapRef.current) {
+      observer.observe(canvasWrapRef.current);
+    }
+
+    return () => {
+      window.removeEventListener("resize", updateViewport);
+      observer.disconnect();
+    };
   }, []);
+
+  // Load levels and furniture
+  useEffect(() => {
+    const loadLevels = async () => {
+      try {
+        setIsLoadingLevels(true);
+        const res = await fetch(`/api/projects/${projectId}/levels`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            setLevels(data);
+            setSelectedLevelId((current) => current || data[0].id);
+          } else {
+            const initRes = await fetch(
+              `/api/projects/${projectId}/levels/init`,
+              {
+                method: "POST",
+              },
+            );
+            if (initRes.ok) {
+              const level = await initRes.json();
+              setLevels([level]);
+              setSelectedLevelId(level.id);
+            } else {
+              setLevels([]);
+              setSelectedLevelId(null);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load levels:", error);
+        // Create default level if none exist
+        try {
+          const initRes = await fetch(
+            `/api/projects/${projectId}/levels/init`,
+            {
+              method: "POST",
+            },
+          );
+          if (initRes.ok) {
+            const level = await initRes.json();
+            setLevels([level]);
+            setSelectedLevelId(level.id);
+          }
+        } catch (initError) {
+          console.error("Failed to initialize default level:", initError);
+        }
+      } finally {
+        setIsLoadingLevels(false);
+      }
+    };
+
+    const loadFurniture = async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/furniture`);
+        if (res.ok) {
+          const data = await res.json();
+          const items = Array.isArray(data) ? data : [];
+          setFurnitureItems(items.map(normalizeFurnitureItem));
+        }
+      } catch (error) {
+        console.error("Failed to load furniture:", error);
+      }
+    };
+
+    const loadFurnitureLibrary = async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/furniture/library`);
+        if (res.ok) {
+          const data = await res.json();
+          const library = data.library || [];
+          setFurnitureLibrary(library);
+          if (library.length > 0) {
+            setSelectedFurnitureType(
+              (current) =>
+                current || `${library[0].asset_type}_${library[0].family}`,
+            );
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load furniture library:", error);
+      }
+    };
+
+    loadLevels();
+    loadFurniture();
+    loadFurnitureLibrary();
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!selectedLevelId && levels.length > 0) {
+      setSelectedLevelId(levels[0].id);
+    }
+  }, [levels, selectedLevelId]);
 
   useEffect(() => {
     // Avoid parent-child feedback loops: only hydrate from props when local editor is empty.
@@ -278,6 +414,63 @@ export default function CADEditor({
         };
         setElements((prev) => [...prev, newText]);
       }
+    } else if (activeTool === "furniture" && selectedFurnitureType) {
+      // Find selected furniture from library
+      const selectedFurniture = furnitureLibrary.find(
+        (item) => `${item.asset_type}_${item.family}` === selectedFurnitureType,
+      );
+
+      if (!selectedFurniture) {
+        console.error("Furniture type not selected");
+        return;
+      }
+
+      const levelId = selectedLevelId || levels[0]?.id;
+      if (!levelId) {
+        console.error("Level not selected");
+        return;
+      }
+
+      // Create furniture item
+      const newFurniture = {
+        asset_type: selectedFurniture.asset_type,
+        family: selectedFurniture.family,
+        level_id: levelId,
+        x: pos.x / MM_TO_CANVAS, // Convert to meters
+        y: pos.y / MM_TO_CANVAS,
+        z: 0, // rotation in degrees
+        width: selectedFurniture.width ?? 1,
+        depth: selectedFurniture.depth ?? 1,
+        height: selectedFurniture.height ?? 1,
+        metadata: selectedFurniture.metadata || {},
+      };
+
+      // Save to backend
+      setIsSavingFurniture(true);
+      fetch(`/api/projects/${projectId}/furniture`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newFurniture),
+      })
+        .then(async (res) => {
+          if (res.ok) return res.json();
+          const errorText = await res.text();
+          throw new Error(errorText || "Failed to save furniture");
+        })
+        .then((savedFurniture) => {
+          // Add to local state immediately for visual feedback
+          setFurnitureItems((prev) => [
+            ...prev,
+            normalizeFurnitureItem(savedFurniture),
+          ]);
+        })
+        .catch((error) => {
+          console.error("Failed to place furniture:", error);
+          alert("Failed to place furniture. Please try again.");
+        })
+        .finally(() => {
+          setIsSavingFurniture(false);
+        });
     }
   };
 
@@ -599,12 +792,6 @@ export default function CADEditor({
           dragBoundFunc={getOpeningDragBound(door, hostWall)}
           onClick={() => setSelectedIds([door.id])}
           onDragStart={() => setSelectedIds([door.id])}
-          onDragMove={(e) => {
-            updateOpeningPosition(door.id, {
-              x: e.target.x(),
-              y: e.target.y(),
-            });
-          }}
           onDragEnd={(e) => {
             updateOpeningPosition(door.id, {
               x: e.target.x(),
@@ -659,12 +846,6 @@ export default function CADEditor({
           dragBoundFunc={getOpeningDragBound(window_, hostWall)}
           onClick={() => setSelectedIds([window_.id])}
           onDragStart={() => setSelectedIds([window_.id])}
-          onDragMove={(e) => {
-            updateOpeningPosition(window_.id, {
-              x: e.target.x(),
-              y: e.target.y(),
-            });
-          }}
           onDragEnd={(e) => {
             updateOpeningPosition(window_.id, {
               x: e.target.x(),
@@ -792,6 +973,107 @@ export default function CADEditor({
     );
   };
 
+  const getFurnitureColor = (assetType: string): string => {
+    const colorMap: Record<string, string> = {
+      Chair: "#8B4513", // Saddle brown
+      Sofa: "#A9A9A9", // Dark gray
+      Table: "#CD853F", // Peru
+      TV: "#2F4F4F", // Dark slate gray
+      Bed: "#FFB6C1", // Light pink
+      Cabinet: "#8B4513", // Saddle brown
+      Desk: "#A0826D", // Brown
+      Bookshelf: "#654321", // Dark brown
+    };
+    return colorMap[assetType] || "#666666"; // Default gray
+  };
+
+  const renderFurniture = (item: FurnitureItem) => {
+    // Convert from meters back to canvas coordinates
+    const x = item.x * MM_TO_CANVAS;
+    const y = item.y * MM_TO_CANVAS;
+    const width = (item.width || 1) * MM_TO_CANVAS;
+    const depth = (item.depth || 1) * MM_TO_CANVAS;
+    const color = getFurnitureColor(item.assetType);
+
+    return (
+      <Group
+        key={item.id}
+        onClick={() => setSelectedIds([item.id])}
+        draggable={activeTool === "select"}
+        onDragStart={() => setSelectedIds([item.id])}
+        onDragEnd={(e) => {
+          // Konva drag position is a delta for this group (its children use
+          // absolute coordinates), so apply delta to the current model coords.
+          const deltaX = e.target.x() / MM_TO_CANVAS;
+          const deltaY = e.target.y() / MM_TO_CANVAS;
+          const newX = item.x + deltaX;
+          const newY = item.y + deltaY;
+
+          // Update local state
+          setFurnitureItems((prev) =>
+            prev.map((furn) =>
+              furn.id === item.id ? { ...furn, x: newX, y: newY } : furn,
+            ),
+          );
+
+          // Reset target position
+          e.target.position({ x: 0, y: 0 });
+
+          // Save to backend
+          fetch(`/api/projects/${projectId}/furniture/${item.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              x: newX,
+              y: newY,
+              z: item.z,
+            }),
+          }).catch((error) => {
+            console.error("Failed to update furniture position:", error);
+          });
+        }}
+      >
+        {/* Furniture Rectangle */}
+        <Rect
+          x={x - width / 2}
+          y={y - depth / 2}
+          width={width}
+          height={depth}
+          fill={color}
+          stroke={selectedIds.includes(item.id) ? "#ef4444" : "#333333"}
+          strokeWidth={selectedIds.includes(item.id) ? 3 : 2}
+          opacity={0.8}
+          rotation={item.z || 0}
+        />
+
+        {/* Furniture Label */}
+        <KonvaText
+          x={x}
+          y={y - 12}
+          text={item.family}
+          fontSize={10}
+          fill="#ffffff"
+          align="center"
+          offsetX={0}
+          rotation={item.z || 0}
+        />
+
+        {/* Dimensions Label (if selected) */}
+        {selectedIds.includes(item.id) && (
+          <KonvaText
+            x={x}
+            y={y + 5}
+            text={`${(item.width || 1).toFixed(1)}m`}
+            fontSize={8}
+            fill="#ffffff"
+            align="center"
+            rotation={item.z || 0}
+          />
+        )}
+      </Group>
+    );
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-slate-800">
       {/* Toolbar */}
@@ -843,6 +1125,67 @@ export default function CADEditor({
         >
           <Type className="w-5 h-5" />
         </button>
+
+        <button
+          onClick={() => setActiveTool("furniture")}
+          className={`p-2.5 rounded ${activeTool === "furniture" ? "bg-blue-500 text-white" : "bg-white"}`}
+          title="Place Furniture"
+        >
+          <Package2 className="w-5 h-5" />
+        </button>
+
+        {/* Furniture Selector */}
+        {activeTool === "furniture" && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-gray-700">
+              Furniture:
+            </span>
+            <select
+              value={selectedFurnitureType || ""}
+              onChange={(e) => setSelectedFurnitureType(e.target.value || null)}
+              className="px-2 py-1 text-sm border border-gray-300 rounded bg-white"
+              disabled={isSavingFurniture}
+            >
+              <option value="">Select furniture...</option>
+              {furnitureLibrary.map((item) => (
+                <option
+                  key={`${item.asset_type}_${item.family}`}
+                  value={`${item.asset_type}_${item.family}`}
+                >
+                  {item.asset_type} - {item.family}
+                </option>
+              ))}
+            </select>
+            {isSavingFurniture && (
+              <span className="text-xs text-blue-600">Placing...</span>
+            )}
+          </div>
+        )}
+
+        {!selectedLevelId && !isLoadingLevels && levels.length > 0 && (
+          <div className="text-xs text-red-600 font-medium">
+            Level not ready
+          </div>
+        )}
+
+        {/* Level Selector */}
+        <div className="mx-2 h-6 w-px bg-gray-300" />
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-700">Level:</span>
+          <select
+            value={selectedLevelId || ""}
+            onChange={(e) => setSelectedLevelId(e.target.value || null)}
+            className="min-w-36 px-3 py-1.5 text-sm border border-gray-300 rounded bg-white shadow-sm"
+            disabled={isLoadingLevels}
+          >
+            {!selectedLevelId && <option value="">Select level...</option>}
+            {levels.map((level) => (
+              <option key={level.id} value={level.id}>
+                {level.name} (Elev. {level.elevation_m}m)
+              </option>
+            ))}
+          </select>
+        </div>
 
         {(() => {
           const selectedDoor = elements.find(
@@ -971,6 +1314,13 @@ export default function CADEditor({
             {/* Elements */}
             {elements.map(renderElement)}
 
+            {/* Furniture Items */}
+            {furnitureItems
+              .filter(
+                (item) => !selectedLevelId || item.levelId === selectedLevelId,
+              )
+              .map(renderFurniture)}
+
             {/* Preview */}
             {isDrawing && activeTool === "wall" && startPoint && endPoint && (
               <Group>
@@ -1015,7 +1365,15 @@ export default function CADEditor({
           Doors: {elements.filter((e) => e.type === "door").length} |{" "}
         </span>
         <span>
-          Windows: {elements.filter((e) => e.type === "window").length}
+          Windows: {elements.filter((e) => e.type === "window").length} |{" "}
+        </span>
+        <span>
+          Furniture:{" "}
+          {
+            furnitureItems.filter(
+              (item) => !selectedLevelId || item.levelId === selectedLevelId,
+            ).length
+          }
         </span>
       </div>
     </div>

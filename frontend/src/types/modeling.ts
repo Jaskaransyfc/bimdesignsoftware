@@ -40,6 +40,7 @@ export interface Wall {
   material: string;
   fireRating?: string;
   color?: string;
+  levelId?: string;
 }
 
 export interface Door {
@@ -48,6 +49,7 @@ export interface Door {
   position: Point2D;
   width: number; // mm
   height: number; // mm
+  levelId?: string;
   swingDirection: "left" | "right" | "double";
   wallId?: string; // Reference to parent wall
   orientation: number; // rotation in degrees
@@ -63,6 +65,7 @@ export interface Window {
   width: number; // mm
   height: number; // mm
   wallId?: string;
+  levelId?: string;
   orientation: number;
   material?: string;
   glazing?: string;
@@ -74,6 +77,7 @@ export interface Room {
   name: string;
   vertices: Point2D[]; // Polygon vertices
   height: number;
+  levelId?: string;
   floorMaterial?: string;
   ceilingMaterial?: string;
   properties: RoomProperties;
@@ -166,6 +170,7 @@ export interface WallGeometry3D {
   thickness: number;
   height: number;
   material: string;
+  levelId?: string;
 }
 
 export interface Model3D {
@@ -206,6 +211,20 @@ export interface RoomGeometry3D {
   wallVertices: number[][];
 }
 
+export interface FurnitureGeometry3D {
+  id: string;
+  kind?: string;
+  label?: string;
+  position: Point3D;
+  width?: number;
+  depth?: number;
+  height?: number;
+  rotation?: number;
+  levelId?: string;
+  material?: string;
+  color?: string;
+}
+
 export interface Face3D {
   id: string;
   vertexIndices: number[];
@@ -229,7 +248,8 @@ export type ToolType =
   | "polyline"
   | "erase"
   | "pan"
-  | "zoom";
+  | "zoom"
+  | "furniture";
 
 export interface DrawingToolState {
   activeTool: ToolType;
@@ -298,4 +318,42 @@ export interface MaterialUsage {
   quantity: number;
   unit: string;
   cost?: number;
+}
+
+// ─────────────────────────────────────────────────────────
+// Levels System
+// ─────────────────────────────────────────────────────────
+
+export interface Level {
+  id: string;
+  projectId: string;
+  name: string;
+  elevation_m: number;
+  floor_height_m: number;
+  order: number;
+}
+
+export interface FurnitureItem {
+  id: string;
+  projectId: string;
+  levelId?: string;
+  assetType: string; // "Chair", "Sofa", "Table", "TV", etc.
+  family: string; // e.g., "Office Chair", "3-Seat Sofa"
+  x: number; // position in meters
+  y: number;
+  z: number; // rotation in degrees
+  width?: number; // in meters
+  depth?: number;
+  height?: number;
+  materialId?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface FurnitureLibraryItem {
+  asset_type: string;
+  family: string;
+  width?: number;
+  depth?: number;
+  height?: number;
+  metadata?: Record<string, any>;
 }

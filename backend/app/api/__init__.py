@@ -1,4 +1,4 @@
 # API Module Exports
-from . import projects, elements, auth, modeling, drawings, engines, collab
+from . import projects, elements, auth, modeling, drawings, engines, collab, advanced_modules, levels, furniture
 
-__all__ = ['projects', 'elements', 'auth', 'modeling', 'drawings', 'engines', 'collab']
+__all__ = ['projects', 'elements', 'auth', 'modeling', 'drawings', 'engines', 'collab', 'advanced_modules', 'levels', 'furniture']

@@ -9,6 +9,8 @@ import {
   Door,
   Window,
   Room,
+  Level,
+  FurnitureItem,
   Point2D,
   Point3D,
   Model3D,
@@ -16,6 +18,7 @@ import {
   DoorGeometry3D,
   WindowGeometry3D,
   RoomGeometry3D,
+  FurnitureGeometry3D,
   Face3D,
 } from "@/types/modeling";
 
@@ -35,18 +38,42 @@ export const createPoint3D = (x: number, y: number, z: number): Point3D => ({
   z,
 });
 
+const DEFAULT_LEVEL: Level = {
+  id: "level_0",
+  projectId: "default",
+  name: "Level 1",
+  elevation_m: 0,
+  floor_height_m: 3,
+  order: 0,
+};
+
+// NOTE: Levels are now fetched from the API separately
+// This function extracts levels for backward compatibility
+const getLevels = (): Level[] => {
+  return [DEFAULT_LEVEL];
+};
+
+const getLevelById = (levels: Level[], levelId?: string): Level => {
+  if (levelId) {
+    const found = levels.find((level) => level.id === levelId);
+    if (found) return found;
+  }
+  return levels[0] || DEFAULT_LEVEL;
+};
+
 // ─────────────────────────────────────────────────────────
 // Wall 3D Geometry Generation
 // ─────────────────────────────────────────────────────────
 
-export const wallTo3D = (wall: Wall): WallGeometry3D => {
+export const wallTo3D = (wall: Wall, levelElevation = 0): WallGeometry3D => {
   return {
     id: wall.id,
-    startPoint: point2DTo3D(wall.startPoint, 0),
-    endPoint: point2DTo3D(wall.endPoint, 0),
+    startPoint: point2DTo3D(wall.startPoint, levelElevation),
+    endPoint: point2DTo3D(wall.endPoint, levelElevation),
     thickness: wall.thickness,
     height: wall.height,
     material: wall.material,
+    levelId: wall.levelId,
   };
 };
 
@@ -143,10 +170,10 @@ export const generateWallFaces = (
 // Door 3D Geometry Generation
 // ─────────────────────────────────────────────────────────
 
-export const doorTo3D = (door: Door): DoorGeometry3D => {
+export const doorTo3D = (door: Door, levelElevation = 0): DoorGeometry3D => {
   return {
     id: door.id,
-    position: point2DTo3D(door.position, 0),
+    position: point2DTo3D(door.position, levelElevation),
     width: door.width,
     height: door.height,
     swingDirection: door.swingDirection,
@@ -171,10 +198,13 @@ export const generateDoorVertices = (door: Door): Point3D[] => {
 // Window 3D Geometry Generation
 // ─────────────────────────────────────────────────────────
 
-export const windowTo3D = (window_: Window): WindowGeometry3D => {
+export const windowTo3D = (
+  window_: Window,
+  levelElevation = 0,
+): WindowGeometry3D => {
   return {
     id: window_.id,
-    position: point2DTo3D(window_.position, 1000), // Windows are usually 1m above floor
+    position: point2DTo3D(window_.position, levelElevation + 1000), // Windows are usually 1m above floor
     width: window_.width,
     height: window_.height,
     wallId: window_.wallId || "",
@@ -198,17 +228,33 @@ export const generateWindowVertices = (window_: Window): Point3D[] => {
 // Room 3D Geometry Generation
 // ─────────────────────────────────────────────────────────
 
-export const roomTo3D = (room: Room): RoomGeometry3D => {
+export const roomTo3D = (room: Room, levelElevation = 0): RoomGeometry3D => {
   return {
     id: room.id,
     name: room.name,
-    vertices: room.vertices.map((v) => point2DTo3D(v, 0)),
+    vertices: room.vertices.map((v) => point2DTo3D(v, levelElevation)),
     height: room.height,
     floorVertices: [],
     ceilingVertices: [],
     wallVertices: [],
   };
 };
+
+export const furnitureTo3D = (
+  furniture: FurnitureItem,
+  levelElevation = 0,
+): FurnitureGeometry3D => ({
+  id: furniture.id,
+  kind: furniture.assetType,
+  label: furniture.family,
+  position: createPoint3D(furniture.x, furniture.y, levelElevation),
+  width: furniture.width,
+  depth: furniture.depth,
+  height: furniture.height,
+  rotation: furniture.z,
+  levelId: furniture.levelId,
+  material: furniture.materialId,
+});
 
 export const generateRoomVertices = (room: Room): Point3D[] => {
   const vertices: Point3D[] = [];
@@ -281,10 +327,19 @@ export const convert2DTo3D = (
   elements: Element[],
   projectId: string,
 ): Model3D => {
+  const levels = getLevels();
   const walls = elements.filter((e) => e.type === "wall") as Wall[];
   const doors = elements.filter((e) => e.type === "door") as Door[];
   const windows = elements.filter((e) => e.type === "window") as Window[];
   const rooms = elements.filter((e) => e.type === "room") as Room[];
+  // NOTE: Furniture items are now stored separately in the database, not as elements
+  // const furniture = elements.filter((e) => e.type === "furniture") as FurnitureItem[];
+
+  const levelElevationMap = new Map(
+    levels.map((level) => [level.id, level.elevation_m]),
+  );
+  const resolveElevation = (levelId?: string) =>
+    levelElevationMap.get(levelId || "") ?? levels[0]?.elevation_m ?? 0;
 
   let vertices: Point3D[] = [];
   let faces: Face3D[] = [];
@@ -293,7 +348,7 @@ export const convert2DTo3D = (
   // Process walls
   const wall3Ds: WallGeometry3D[] = [];
   walls.forEach((wall, idx) => {
-    wall3Ds.push(wallTo3D(wall));
+    wall3Ds.push(wallTo3D(wall, resolveElevation(wall.levelId)));
     const wallVertices = generateWallVertices(wall);
     const wallFaces = generateWallFaces(idx, vertexOffset);
 
@@ -305,7 +360,7 @@ export const convert2DTo3D = (
   // Process doors
   const door3Ds: DoorGeometry3D[] = [];
   doors.forEach((door) => {
-    door3Ds.push(doorTo3D(door));
+    door3Ds.push(doorTo3D(door, resolveElevation(door.levelId)));
     const doorVertices = generateDoorVertices(door);
     vertices.push(...doorVertices);
     vertexOffset += doorVertices.length;
@@ -314,7 +369,7 @@ export const convert2DTo3D = (
   // Process windows
   const window3Ds: WindowGeometry3D[] = [];
   windows.forEach((window_) => {
-    window3Ds.push(windowTo3D(window_));
+    window3Ds.push(windowTo3D(window_, resolveElevation(window_.levelId)));
     const windowVertices = generateWindowVertices(window_);
     vertices.push(...windowVertices);
     vertexOffset += windowVertices.length;
@@ -323,7 +378,7 @@ export const convert2DTo3D = (
   // Process rooms
   const room3Ds: RoomGeometry3D[] = [];
   rooms.forEach((room) => {
-    room3Ds.push(roomTo3D(room));
+    room3Ds.push(roomTo3D(room, resolveElevation(room.levelId)));
     const roomVertices = generateRoomVertices(room);
     const roomFaces = generateRoomFaces(room, vertexOffset);
 
@@ -331,6 +386,11 @@ export const convert2DTo3D = (
     faces.push(...roomFaces);
     vertexOffset += roomVertices.length;
   });
+
+  // NOTE: Furniture items are stored separately and handled in Model3DPreview
+  // const furniture3Ds: FurnitureGeometry3D[] = furniture.map((item) =>
+  //   furnitureTo3D(item, resolveElevation(item.levelId)),
+  // );
 
   return {
     id: `model_${projectId}`,

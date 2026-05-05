@@ -181,6 +181,51 @@ type RenderingResult = {
   render_notes: string[];
 };
 
+type EscrowMilestone = {
+  id: string;
+  project_id: string;
+  boq_item_id: string;
+  amount: number;
+  currency: string;
+  engineer_approved: boolean;
+  client_approved: boolean;
+  payment_status: string;
+  triggered_at: string | null;
+  created_at: string;
+};
+
+type PluginResult = {
+  id: string;
+  project_id: string;
+  name: string;
+  slug: string;
+  sdk_type: "python" | "javascript";
+  version: string;
+  container_image?: string | null;
+  status: string;
+  manifest: Record<string, unknown>;
+  created_at: string;
+};
+
+type OrganizationResult = {
+  id: string;
+  name: string;
+  sso_provider?: string;
+  sso_issuer?: string | null;
+  created_at: string;
+};
+
+type AuditResult = {
+  id: string;
+  project_id: string | null;
+  organization_id: string | null;
+  actor: string;
+  action: string;
+  entity: string;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+};
+
 type RebarForm = {
   member_type: "beam" | "column" | "slab" | "footing";
   length_mm: number;
@@ -238,6 +283,35 @@ type RenderingForm = {
   walkthrough: boolean;
   sun_study: boolean;
   material_preview: boolean;
+};
+
+type EscrowForm = {
+  boq_item_id: string;
+  amount: number;
+  currency: string;
+  actor: string;
+};
+
+type PluginForm = {
+  name: string;
+  slug: string;
+  sdk_type: "python" | "javascript";
+  version: string;
+  container_image: string;
+  actor: string;
+};
+
+type AdminForm = {
+  org_name: string;
+  sso_provider: string;
+  sso_issuer: string;
+  member_email: string;
+  member_role: "viewer" | "editor" | "approver" | "admin";
+  access_email: string;
+  access_permission: "read" | "edit" | "approve" | "admin";
+  plan: "team" | "business" | "enterprise";
+  duration_days: number;
+  actor: string;
 };
 
 const apiBase = () =>
@@ -470,6 +544,52 @@ export default function AdvancedModulesPage() {
   );
   const [renderBusy, setRenderBusy] = useState(false);
 
+  const [escrowForm, setEscrowForm] = useState<EscrowForm>({
+    boq_item_id: "BOQ-001",
+    amount: 10000,
+    currency: "USD",
+    actor: "engineer@local",
+  });
+  const [milestones, setMilestones] = useState<EscrowMilestone[]>([]);
+  const [escrowBusy, setEscrowBusy] = useState(false);
+
+  const [pluginForm, setPluginForm] = useState<PluginForm>({
+    name: "Custom BOQ Template",
+    slug: "custom-boq-template",
+    sdk_type: "python",
+    version: "0.1.0",
+    container_image: "",
+    actor: "consultant@local",
+  });
+  const [plugins, setPlugins] = useState<PluginResult[]>([]);
+  const [pluginRunOutput, setPluginRunOutput] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [pluginBusy, setPluginBusy] = useState(false);
+
+  const [adminForm, setAdminForm] = useState<AdminForm>({
+    org_name: "Acme Infra",
+    sso_provider: "keycloak",
+    sso_issuer: "https://sso.local/realms/acme",
+    member_email: "manager@acme.com",
+    member_role: "admin",
+    access_email: "engineer@acme.com",
+    access_permission: "edit",
+    plan: "enterprise",
+    duration_days: 365,
+    actor: "admin@local",
+  });
+  const [organization, setOrganization] = useState<OrganizationResult | null>(
+    null,
+  );
+  const [licenseInfo, setLicenseInfo] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditResult[]>([]);
+  const [adminBusy, setAdminBusy] = useState(false);
+
   useEffect(() => {
     if (!projectId) {
       setError("Project id is missing.");
@@ -681,6 +801,182 @@ export default function AdvancedModulesPage() {
     }
   };
 
+  const loadEscrowMilestones = async () => {
+    if (!projectId) return;
+    const res = await fetch(
+      `${apiBase()}/api/projects/${projectId}/modules/payment-escrow/milestones`,
+    );
+    if (!res.ok) return;
+    const data = (await res.json()) as EscrowMilestone[];
+    setMilestones(data);
+  };
+
+  const loadPlugins = async () => {
+    if (!projectId) return;
+    const res = await fetch(
+      `${apiBase()}/api/projects/${projectId}/modules/marketplace/plugins`,
+    );
+    if (!res.ok) return;
+    const data = (await res.json()) as PluginResult[];
+    setPlugins(data);
+  };
+
+  const loadAuditLogs = async () => {
+    if (!projectId) return;
+    const res = await fetch(
+      `${apiBase()}/api/projects/${projectId}/modules/admin/audit-logs?limit=50`,
+    );
+    if (!res.ok) return;
+    const data = (await res.json()) as AuditResult[];
+    setAuditLogs(data);
+  };
+
+  const startEscrow = async () => {
+    if (!projectId) return;
+    setEscrowBusy(true);
+    try {
+      await postJson<EscrowMilestone>(
+        `/api/projects/${projectId}/modules/payment-escrow/start`,
+        escrowForm,
+      );
+      await loadEscrowMilestones();
+      await loadAuditLogs();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setEscrowBusy(false);
+    }
+  };
+
+  const approveEscrow = async (
+    milestoneId: string,
+    who: "engineer" | "client",
+  ) => {
+    if (!projectId) return;
+    setEscrowBusy(true);
+    try {
+      const path =
+        who === "engineer"
+          ? `/api/projects/${projectId}/modules/payment-escrow/${milestoneId}/engineer-approve`
+          : `/api/projects/${projectId}/modules/payment-escrow/${milestoneId}/client-approve`;
+      await postJson(path, {
+        actor: who === "engineer" ? "engineer@local" : "client@local",
+      });
+      await loadEscrowMilestones();
+      await loadAuditLogs();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setEscrowBusy(false);
+    }
+  };
+
+  const registerPlugin = async () => {
+    if (!projectId) return;
+    setPluginBusy(true);
+    try {
+      await postJson<PluginResult>(
+        `/api/projects/${projectId}/modules/marketplace/plugins`,
+        {
+          ...pluginForm,
+          container_image: pluginForm.container_image || null,
+          manifest: {
+            hooks: ["boq-template", "validator", "report"],
+            runtime: pluginForm.sdk_type,
+          },
+        },
+      );
+      await loadPlugins();
+      await loadAuditLogs();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPluginBusy(false);
+    }
+  };
+
+  const runPlugin = async (pluginId: string) => {
+    if (!projectId) return;
+    setPluginBusy(true);
+    try {
+      const output = await postJson<Record<string, unknown>>(
+        `/api/projects/${projectId}/modules/marketplace/plugins/${pluginId}/run`,
+        {
+          actor: pluginForm.actor,
+          payload: {
+            project_id: projectId,
+            floor_area_m2: context?.estimated_floor_area_m2 ?? 0,
+          },
+        },
+      );
+      setPluginRunOutput(output);
+      await loadAuditLogs();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPluginBusy(false);
+    }
+  };
+
+  const setupOrganization = async () => {
+    if (!projectId) return;
+    setAdminBusy(true);
+    try {
+      const org = await postJson<OrganizationResult>(
+        `/api/projects/${projectId}/modules/admin/organizations`,
+        {
+          name: adminForm.org_name,
+          sso_provider: adminForm.sso_provider,
+          sso_issuer: adminForm.sso_issuer,
+          actor: adminForm.actor,
+        },
+      );
+      setOrganization(org);
+
+      await postJson(
+        `/api/projects/${projectId}/modules/admin/organizations/${org.id}/members`,
+        {
+          user_email: adminForm.member_email,
+          role: adminForm.member_role,
+          actor: adminForm.actor,
+        },
+      );
+
+      await postJson(
+        `/api/projects/${projectId}/modules/admin/project-access`,
+        {
+          organization_id: org.id,
+          user_email: adminForm.access_email,
+          permission: adminForm.access_permission,
+          actor: adminForm.actor,
+        },
+      );
+
+      const license = await postJson<Record<string, unknown>>(
+        `/api/projects/${projectId}/modules/admin/license/issue`,
+        {
+          organization_id: org.id,
+          plan: adminForm.plan,
+          duration_days: adminForm.duration_days,
+          actor: adminForm.actor,
+        },
+      );
+      setLicenseInfo(license);
+      await loadAuditLogs();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setAdminBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!projectId) return;
+    loadEscrowMilestones();
+    loadPlugins();
+    loadAuditLogs();
+  }, [projectId]);
+
   const contextReady = Boolean(context);
 
   return (
@@ -706,12 +1002,6 @@ export default function AdvancedModulesPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Link
-              href={`/modeling/${projectId}`}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 font-medium text-slate-300 transition hover:border-blue-500/30 hover:text-white"
-            >
-              Back to Studio
-            </Link>
             <Link
               href="/"
               className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 font-medium text-slate-300 transition hover:border-blue-500/30 hover:text-white"
@@ -776,6 +1066,24 @@ export default function AdvancedModulesPage() {
             className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-blue-500/30 hover:text-white"
           >
             <Eye className="mr-2 inline h-4 w-4" /> Rendering
+          </a>
+          <a
+            href="#payment-escrow"
+            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-blue-500/30 hover:text-white"
+          >
+            <Workflow className="mr-2 inline h-4 w-4" /> Payment / Escrow
+          </a>
+          <a
+            href="#marketplace"
+            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-blue-500/30 hover:text-white"
+          >
+            <Box className="mr-2 inline h-4 w-4" /> Plugin Marketplace
+          </a>
+          <a
+            href="#admin-security"
+            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-blue-500/30 hover:text-white"
+          >
+            <ShieldAlert className="mr-2 inline h-4 w-4" /> Admin Security
           </a>
         </div>
 
@@ -1610,6 +1918,460 @@ export default function AdvancedModulesPage() {
                 </div>
               </div>
             ) : null}
+          </SectionCard>
+
+          <SectionCard
+            id="payment-escrow"
+            title="Payment / Escrow Workflow"
+            description="Track BOQ completion approvals and trigger payment milestones after engineer + client approval with full audit logging."
+            icon={Workflow}
+          >
+            <div className="grid gap-4 md:grid-cols-4">
+              <label className="space-y-1 text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  BOQ Item
+                </span>
+                <input
+                  type="text"
+                  value={escrowForm.boq_item_id}
+                  onChange={(e) =>
+                    setEscrowForm((prev) => ({
+                      ...prev,
+                      boq_item_id: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <NumberField
+                label="Amount"
+                value={escrowForm.amount}
+                onChange={(value) =>
+                  setEscrowForm((prev) => ({ ...prev, amount: value }))
+                }
+                min={0}
+              />
+              <label className="space-y-1 text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Currency
+                </span>
+                <input
+                  type="text"
+                  value={escrowForm.currency}
+                  onChange={(e) =>
+                    setEscrowForm((prev) => ({
+                      ...prev,
+                      currency: e.target.value.toUpperCase(),
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Actor
+                </span>
+                <input
+                  type="text"
+                  value={escrowForm.actor}
+                  onChange={(e) =>
+                    setEscrowForm((prev) => ({
+                      ...prev,
+                      actor: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                onClick={startEscrow}
+                disabled={escrowBusy}
+                className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {escrowBusy ? "Saving..." : "Create Milestone"}
+              </button>
+              <button
+                onClick={loadEscrowMilestones}
+                className="rounded-xl bg-slate-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-600"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="mt-6 overflow-hidden rounded-2xl border border-white/10">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-950/80 text-xs uppercase tracking-wider text-slate-400">
+                  <tr>
+                    <th className="px-4 py-3">BOQ</th>
+                    <th className="px-4 py-3">Amount</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 bg-[#0c1020] text-slate-200">
+                  {milestones.map((ms) => (
+                    <tr key={ms.id}>
+                      <td className="px-4 py-3">{ms.boq_item_id}</td>
+                      <td className="px-4 py-3">
+                        {ms.amount.toFixed(2)} {ms.currency}
+                      </td>
+                      <td className="px-4 py-3">{ms.payment_status}</td>
+                      <td className="px-4 py-3 flex gap-2">
+                        <button
+                          onClick={() => approveEscrow(ms.id, "engineer")}
+                          disabled={ms.engineer_approved || escrowBusy}
+                          className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
+                        >
+                          Engineer Approve
+                        </button>
+                        <button
+                          onClick={() => approveEscrow(ms.id, "client")}
+                          disabled={ms.client_approved || escrowBusy}
+                          className="rounded-lg bg-fuchsia-600 px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
+                        >
+                          Client Approve
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            id="marketplace"
+            title="Plugin / API Marketplace"
+            description="Register consultant plugins (Python/JavaScript SDK), run in docker-sandbox mode, and generate custom reports."
+            icon={Box}
+          >
+            <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+              <label className="space-y-1 text-sm xl:col-span-2">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Plugin Name
+                </span>
+                <input
+                  type="text"
+                  value={pluginForm.name}
+                  onChange={(e) =>
+                    setPluginForm((prev) => ({ ...prev, name: e.target.value }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Slug
+                </span>
+                <input
+                  type="text"
+                  value={pluginForm.slug}
+                  onChange={(e) =>
+                    setPluginForm((prev) => ({ ...prev, slug: e.target.value }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <SelectField
+                label="SDK"
+                value={pluginForm.sdk_type}
+                onChange={(value) =>
+                  setPluginForm((prev) => ({
+                    ...prev,
+                    sdk_type: value as PluginForm["sdk_type"],
+                  }))
+                }
+                options={[
+                  { label: "Python SDK", value: "python" },
+                  { label: "JavaScript SDK", value: "javascript" },
+                ]}
+              />
+              <label className="space-y-1 text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Version
+                </span>
+                <input
+                  type="text"
+                  value={pluginForm.version}
+                  onChange={(e) =>
+                    setPluginForm((prev) => ({
+                      ...prev,
+                      version: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <label className="space-y-1 text-sm xl:col-span-2">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Container Image (optional)
+                </span>
+                <input
+                  type="text"
+                  value={pluginForm.container_image}
+                  onChange={(e) =>
+                    setPluginForm((prev) => ({
+                      ...prev,
+                      container_image: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                onClick={registerPlugin}
+                disabled={pluginBusy}
+                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-blue-500 disabled:opacity-50"
+              >
+                {pluginBusy ? "Working..." : "Register Plugin"}
+              </button>
+              <button
+                onClick={loadPlugins}
+                className="rounded-xl bg-slate-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-600"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {plugins.map((plugin) => (
+                <div
+                  key={plugin.id}
+                  className="rounded-2xl border border-white/10 bg-slate-950/50 p-4"
+                >
+                  <div className="text-sm font-bold text-white">
+                    {plugin.name}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    {plugin.slug} · {plugin.sdk_type} · {plugin.version}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => runPlugin(plugin.id)}
+                      disabled={pluginBusy}
+                      className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
+                    >
+                      Run Plugin
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {pluginRunOutput ? (
+              <pre className="mt-4 overflow-auto rounded-2xl border border-white/10 bg-[#0c1020] p-4 text-xs text-slate-200">
+                {JSON.stringify(pluginRunOutput, null, 2)}
+              </pre>
+            ) : null}
+          </SectionCard>
+
+          <SectionCard
+            id="admin-security"
+            title="Admin + Enterprise Security"
+            description="Create organizations, assign roles, grant project-level permissions, issue license keys, and inspect audit trails."
+            icon={ShieldAlert}
+          >
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <label className="space-y-1 text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Organization
+                </span>
+                <input
+                  type="text"
+                  value={adminForm.org_name}
+                  onChange={(e) =>
+                    setAdminForm((prev) => ({
+                      ...prev,
+                      org_name: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  SSO Provider
+                </span>
+                <input
+                  type="text"
+                  value={adminForm.sso_provider}
+                  onChange={(e) =>
+                    setAdminForm((prev) => ({
+                      ...prev,
+                      sso_provider: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <label className="space-y-1 text-sm xl:col-span-2">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  SSO Issuer
+                </span>
+                <input
+                  type="text"
+                  value={adminForm.sso_issuer}
+                  onChange={(e) =>
+                    setAdminForm((prev) => ({
+                      ...prev,
+                      sso_issuer: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Member Email
+                </span>
+                <input
+                  type="email"
+                  value={adminForm.member_email}
+                  onChange={(e) =>
+                    setAdminForm((prev) => ({
+                      ...prev,
+                      member_email: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <SelectField
+                label="Member Role"
+                value={adminForm.member_role}
+                onChange={(value) =>
+                  setAdminForm((prev) => ({
+                    ...prev,
+                    member_role: value as AdminForm["member_role"],
+                  }))
+                }
+                options={[
+                  { label: "Viewer", value: "viewer" },
+                  { label: "Editor", value: "editor" },
+                  { label: "Approver", value: "approver" },
+                  { label: "Admin", value: "admin" },
+                ]}
+              />
+              <label className="space-y-1 text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Access Email
+                </span>
+                <input
+                  type="email"
+                  value={adminForm.access_email}
+                  onChange={(e) =>
+                    setAdminForm((prev) => ({
+                      ...prev,
+                      access_email: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <SelectField
+                label="Project Permission"
+                value={adminForm.access_permission}
+                onChange={(value) =>
+                  setAdminForm((prev) => ({
+                    ...prev,
+                    access_permission: value as AdminForm["access_permission"],
+                  }))
+                }
+                options={[
+                  { label: "Read", value: "read" },
+                  { label: "Edit", value: "edit" },
+                  { label: "Approve", value: "approve" },
+                  { label: "Admin", value: "admin" },
+                ]}
+              />
+              <SelectField
+                label="License Plan"
+                value={adminForm.plan}
+                onChange={(value) =>
+                  setAdminForm((prev) => ({
+                    ...prev,
+                    plan: value as AdminForm["plan"],
+                  }))
+                }
+                options={[
+                  { label: "Team", value: "team" },
+                  { label: "Business", value: "business" },
+                  { label: "Enterprise", value: "enterprise" },
+                ]}
+              />
+              <NumberField
+                label="License Days"
+                value={adminForm.duration_days}
+                onChange={(value) =>
+                  setAdminForm((prev) => ({ ...prev, duration_days: value }))
+                }
+                min={1}
+              />
+            </div>
+
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={setupOrganization}
+                disabled={adminBusy}
+                className="rounded-xl bg-fuchsia-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-fuchsia-500 disabled:opacity-50"
+              >
+                {adminBusy
+                  ? "Configuring..."
+                  : "Configure Organization + Access"}
+              </button>
+              <button
+                onClick={loadAuditLogs}
+                className="rounded-xl bg-slate-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-slate-600"
+              >
+                Refresh Audit Logs
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <MetricCard
+                label="Organization"
+                value={organization?.name || "Not created"}
+              />
+              <MetricCard
+                label="SSO"
+                value={organization?.sso_provider || "keycloak"}
+              />
+              <MetricCard
+                label="License"
+                value={String(licenseInfo?.plan || "Not issued")}
+              />
+            </div>
+
+            <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-950/80 text-xs uppercase tracking-wider text-slate-400">
+                  <tr>
+                    <th className="px-4 py-3">Time</th>
+                    <th className="px-4 py-3">Actor</th>
+                    <th className="px-4 py-3">Action</th>
+                    <th className="px-4 py-3">Entity</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 bg-[#0c1020] text-slate-200">
+                  {auditLogs.map((log) => (
+                    <tr key={log.id}>
+                      <td className="px-4 py-3">
+                        {new Date(log.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">{log.actor}</td>
+                      <td className="px-4 py-3">{log.action}</td>
+                      <td className="px-4 py-3">{log.entity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </SectionCard>
         </div>
 
