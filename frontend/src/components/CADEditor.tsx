@@ -115,6 +115,54 @@ const deriveDoorPreset = (source?: string | null) => {
   };
 };
 
+const deriveWindowPreset = (source?: string | null) => {
+  const raw = String(source || "").toLowerCase();
+  const isWide = /wide|double|2\s*leaf|2leaf|bay|panorama|slider|sliding/.test(
+    raw,
+  );
+  const isTall = /tall|vertical|slim|narrow/.test(raw);
+  const isLarge = /large|big|full/.test(raw);
+  const isGlass = /glass|glazed|frameless/.test(raw);
+
+  if (isWide && isLarge) {
+    return {
+      width: 2400,
+      height: 1800,
+      windowStyle: "wide",
+      glazing: isGlass ? "Clear" : "Standard",
+      material: isGlass ? "Glass" : "Aluminum",
+    };
+  }
+
+  if (isWide) {
+    return {
+      width: 1800,
+      height: 1500,
+      windowStyle: "wide",
+      glazing: isGlass ? "Clear" : "Standard",
+      material: isGlass ? "Glass" : "Aluminum",
+    };
+  }
+
+  if (isTall) {
+    return {
+      width: 1200,
+      height: 1800,
+      windowStyle: "tall",
+      glazing: isGlass ? "Clear" : "Standard",
+      material: isGlass ? "Glass" : "Aluminum",
+    };
+  }
+
+  return {
+    width: 1200,
+    height: 1200,
+    windowStyle: "single",
+    glazing: isGlass ? "Clear" : "Standard",
+    material: isGlass ? "Glass" : "Aluminum",
+  };
+};
+
 export default function CADEditor({
   projectId,
   onSave,
@@ -144,7 +192,11 @@ export default function CADEditor({
   const [furnitureItems, setFurnitureItems] = useState<FurnitureItem[]>([]);
   const [furnitureLibrary, setFurnitureLibrary] = useState<any[]>([]);
   const [doorLibrary, setDoorLibrary] = useState<any[]>([]);
+  const [windowLibrary, setWindowLibrary] = useState<any[]>([]);
   const [selectedDoorModelUrl, setSelectedDoorModelUrl] = useState<
+    string | null
+  >(null);
+  const [selectedWindowModelUrl, setSelectedWindowModelUrl] = useState<
     string | null
   >(null);
   const [customDoorUrl, setCustomDoorUrl] = useState<string>("");
@@ -301,12 +353,22 @@ export default function CADEditor({
             const path = d.path.toLowerCase();
             const name = d.name.toLowerCase();
             // Only exclude specific non-door hardware items
-            const hardwareTerms = ["hinge", "handle", "knob", "accessories", "hardware"];
-            return !hardwareTerms.some(term => path.includes(term) || name.includes(term));
+            const hardwareTerms = [
+              "hinge",
+              "handle",
+              "knob",
+              "accessories",
+              "hardware",
+            ];
+            return !hardwareTerms.some(
+              (term) => path.includes(term) || name.includes(term),
+            );
           });
           setDoorLibrary(filtered);
           if (filtered.length > 0) {
-            setSelectedDoorModelUrl(filtered[0].raw_url || filtered[0].download_url);
+            setSelectedDoorModelUrl(
+              filtered[0].raw_url || filtered[0].download_url,
+            );
           }
         }
       } catch (err) {
@@ -314,6 +376,28 @@ export default function CADEditor({
       }
     };
     loadDoorLibrary();
+  }, []);
+
+  useEffect(() => {
+    const loadWindowLibrary = async () => {
+      try {
+        const res = await fetch(`/api/freecad/windows`);
+        if (res.ok) {
+          const data = await res.json();
+          const library = Array.isArray(data) ? data : [];
+          setWindowLibrary(library);
+          if (library.length > 0) {
+            setSelectedWindowModelUrl(
+              (current) =>
+                current || library[0].raw_url || library[0].download_url,
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load FreeCAD window library:", err);
+      }
+    };
+    loadWindowLibrary();
   }, []);
 
   useEffect(() => {
@@ -452,7 +536,9 @@ export default function CADEditor({
       }
 
       const doorPreset = deriveDoorPreset(selectedDoorModelUrl);
-      const openingWidth = activeTool === "door" ? doorPreset.width : 1200;
+      const windowPreset = deriveWindowPreset(selectedWindowModelUrl);
+      const openingWidth =
+        activeTool === "door" ? doorPreset.width : windowPreset.width;
       const { position, orientation } = constrainOpeningOnWall(
         pos,
         hostWall,
@@ -462,35 +548,41 @@ export default function CADEditor({
       const newElement: Element =
         activeTool === "door"
           ? {
-            id: `door_${Date.now()}`,
-            type: "door",
-            position,
-            width: doorPreset.width,
-            height: doorPreset.height,
-            swingDirection: doorPreset.swingDirection,
-            wallId: hostWall?.id,
-            orientation,
-            openingSide: doorPreset.openingSide,
-            material: doorPreset.material,
-            metadata: selectedDoorModelUrl
-              ? {
-                door_model_url: selectedDoorModelUrl,
-                door_style: doorPreset.doorStyle,
-              }
-              : { door_style: doorPreset.doorStyle },
-            fireRating: "-",
-          }
+              id: `door_${Date.now()}`,
+              type: "door",
+              position,
+              width: doorPreset.width,
+              height: doorPreset.height,
+              swingDirection: doorPreset.swingDirection,
+              wallId: hostWall?.id,
+              orientation,
+              openingSide: doorPreset.openingSide,
+              material: doorPreset.material,
+              metadata: selectedDoorModelUrl
+                ? {
+                    door_model_url: selectedDoorModelUrl,
+                    door_style: doorPreset.doorStyle,
+                  }
+                : { door_style: doorPreset.doorStyle },
+              fireRating: "-",
+            }
           : {
-            id: `win_${Date.now()}`,
-            type: "window",
-            position,
-            width: openingWidth,
-            height: 1200,
-            wallId: hostWall?.id,
-            orientation,
-            material: "Glass",
-            glazing: "Clear",
-          };
+              id: `win_${Date.now()}`,
+              type: "window",
+              position,
+              width: openingWidth,
+              height: windowPreset.height,
+              wallId: hostWall?.id,
+              orientation,
+              material: windowPreset.material,
+              glazing: windowPreset.glazing,
+              metadata: selectedWindowModelUrl
+                ? {
+                    window_model_url: selectedWindowModelUrl,
+                    window_style: windowPreset.windowStyle,
+                  }
+                : { window_style: windowPreset.windowStyle },
+            };
 
       setElements((prev) => [...prev, newElement]);
       setIsDrawing(false);
@@ -737,8 +829,8 @@ export default function CADEditor({
           // Prefer current host wall to avoid jumpy re-assignment while dragging.
           let hostWall = opening.wallId
             ? (prev.find(
-              (w) => w.id === opening.wallId && w.type === "wall",
-            ) as Wall | undefined)
+                (w) => w.id === opening.wallId && w.type === "wall",
+              ) as Wall | undefined)
             : undefined;
 
           // If not attached yet, try nearest wall.
@@ -885,7 +977,7 @@ export default function CADEditor({
     const hingePoint = door.swingDirection === "left" ? p1 : p2;
     const arcRotation =
       (Math.atan2(normal.y * insideSign, normal.x * insideSign) * 180) /
-      Math.PI -
+        Math.PI -
       (door.swingDirection === "left" ? 90 : 0);
 
     const leafEnd = {
@@ -1015,7 +1107,7 @@ export default function CADEditor({
               rotation={
                 (Math.atan2(normal.y * insideSign, normal.x * insideSign) *
                   180) /
-                Math.PI -
+                  Math.PI -
                 90
               }
               stroke="#7c2d12"
@@ -1045,11 +1137,11 @@ export default function CADEditor({
                 p1.x + dir.x * (openingWidth / 3),
                 p1.y + dir.y * (openingWidth / 3),
                 p1.x +
-                dir.x * (openingWidth / 3) +
-                normal.x * insideSign * (openingWidth / 2.8),
+                  dir.x * (openingWidth / 3) +
+                  normal.x * insideSign * (openingWidth / 2.8),
                 p1.y +
-                dir.y * (openingWidth / 3) +
-                normal.y * insideSign * (openingWidth / 2.8),
+                  dir.y * (openingWidth / 3) +
+                  normal.y * insideSign * (openingWidth / 2.8),
               ]}
               stroke="#7c2d12"
               strokeWidth={2}
@@ -1059,11 +1151,11 @@ export default function CADEditor({
                 p1.x + dir.x * ((2 * openingWidth) / 3),
                 p1.y + dir.y * ((2 * openingWidth) / 3),
                 p1.x +
-                dir.x * ((2 * openingWidth) / 3) +
-                normal.x * insideSign * (openingWidth / 2.8),
+                  dir.x * ((2 * openingWidth) / 3) +
+                  normal.x * insideSign * (openingWidth / 2.8),
                 p1.y +
-                dir.y * ((2 * openingWidth) / 3) +
-                normal.y * insideSign * (openingWidth / 2.8),
+                  dir.y * ((2 * openingWidth) / 3) +
+                  normal.y * insideSign * (openingWidth / 2.8),
               ]}
               stroke="#7c2d12"
               strokeWidth={2}
@@ -1228,16 +1320,16 @@ export default function CADEditor({
             prev.map((el) =>
               el.id === dim.id
                 ? {
-                  ...el,
-                  startPoint: {
-                    x: (el as Dimension).startPoint.x + e.target.x(),
-                    y: (el as Dimension).startPoint.y + e.target.y(),
-                  },
-                  endPoint: {
-                    x: (el as Dimension).endPoint.x + e.target.x(),
-                    y: (el as Dimension).endPoint.y + e.target.y(),
-                  },
-                }
+                    ...el,
+                    startPoint: {
+                      x: (el as Dimension).startPoint.x + e.target.x(),
+                      y: (el as Dimension).startPoint.y + e.target.y(),
+                    },
+                    endPoint: {
+                      x: (el as Dimension).endPoint.x + e.target.x(),
+                      y: (el as Dimension).endPoint.y + e.target.y(),
+                    },
+                  }
                 : el,
             ),
           );
@@ -1414,7 +1506,9 @@ export default function CADEditor({
             title="Select"
           >
             <Move className="w-5 h-5" />
-            <span className="text-[11px] font-black uppercase tracking-wider">Select</span>
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Select
+            </span>
           </button>
           <button
             onClick={() => setActiveTool("pan")}
@@ -1422,7 +1516,9 @@ export default function CADEditor({
             title="Pan"
           >
             <Hand className="w-5 h-5" />
-            <span className="text-[11px] font-black uppercase tracking-wider">Pan</span>
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Pan
+            </span>
           </button>
         </div>
 
@@ -1434,7 +1530,9 @@ export default function CADEditor({
             title="Wall (W)"
           >
             <Square className="w-5 h-5" />
-            <span className="text-[11px] font-black uppercase tracking-wider">Wall</span>
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Wall
+            </span>
           </button>
           <button
             onClick={() => setActiveTool("door")}
@@ -1442,7 +1540,9 @@ export default function CADEditor({
             title="Door (D)"
           >
             <DoorIcon size={20} />
-            <span className="text-[11px] font-black uppercase tracking-wider">Door</span>
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Door
+            </span>
           </button>
           <button
             onClick={() => setActiveTool("window")}
@@ -1450,7 +1550,9 @@ export default function CADEditor({
             title="Window (N)"
           >
             <Layout size={20} />
-            <span className="text-[11px] font-black uppercase tracking-wider">Window</span>
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Window
+            </span>
           </button>
           <button
             onClick={() => setActiveTool("furniture")}
@@ -1458,7 +1560,9 @@ export default function CADEditor({
             title="Furniture (F)"
           >
             <Package2 className="w-5 h-5" />
-            <span className="text-[11px] font-black uppercase tracking-wider">Item</span>
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Item
+            </span>
           </button>
         </div>
 
@@ -1470,7 +1574,9 @@ export default function CADEditor({
             title="Dimension (L)"
           >
             <Ruler className="w-5 h-5" />
-            <span className="text-[11px] font-black uppercase tracking-wider">Dim</span>
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Dim
+            </span>
           </button>
           <button
             onClick={() => setActiveTool("text")}
@@ -1478,40 +1584,77 @@ export default function CADEditor({
             title="Text (T)"
           >
             <Type className="w-5 h-5" />
-            <span className="text-[11px] font-black uppercase tracking-wider">Text</span>
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Text
+            </span>
           </button>
         </div>
 
         {/* Contextual Options Bar */}
-        {(activeTool === "door" || activeTool === "window" || activeTool === "furniture") && (
+        {(activeTool === "door" ||
+          activeTool === "window" ||
+          activeTool === "furniture") && (
           <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border-2 border-blue-200 rounded-md animate-in slide-in-from-left-2 duration-200 shadow-sm">
             {activeTool === "door" && (
               <>
-                <span className="text-[10px] uppercase font-black text-blue-500">Door Style:</span>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Door Style:
+                </span>
                 <select
                   value={selectedDoorModelUrl || ""}
                   onChange={(e) => setSelectedDoorModelUrl(e.target.value)}
-                  className="min-w-[140px] max-w-[220px] text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
                 >
                   <option value="">Standard BIM Door</option>
                   {doorLibrary.map((d) => (
-                    <option key={d.path} value={d.raw_url || d.download_url}>{d.name}</option>
+                    <option key={d.path} value={d.raw_url || d.download_url}>
+                      {d.name}
+                    </option>
                   ))}
                 </select>
               </>
             )}
-            
+
+            {activeTool === "window" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Window Style:
+                </span>
+                <select
+                  value={selectedWindowModelUrl || ""}
+                  onChange={(e) =>
+                    setSelectedWindowModelUrl(e.target.value || null)
+                  }
+                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="">Standard BIM Window</option>
+                  {windowLibrary.map((w) => (
+                    <option key={w.path} value={w.raw_url || w.download_url}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+
             {activeTool === "furniture" && (
               <>
-                <span className="text-[10px] uppercase font-black text-blue-500">Library:</span>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Library:
+                </span>
                 <select
                   value={selectedFurnitureType || ""}
-                  onChange={(e) => setSelectedFurnitureType(e.target.value || null)}
-                  className="min-w-[140px] text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                  onChange={(e) =>
+                    setSelectedFurnitureType(e.target.value || null)
+                  }
+                  className="min-w-35 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
                 >
                   <option value="">Select Furniture...</option>
                   {furnitureLibrary.map((item) => (
-                    <option key={`${item.asset_type}_${item.family}`} value={`${item.asset_type}_${item.family}`}>
+                    <option
+                      key={`${item.asset_type}_${item.family}`}
+                      value={`${item.asset_type}_${item.family}`}
+                    >
                       {item.asset_type} - {item.family}
                     </option>
                   ))}
@@ -1520,8 +1663,6 @@ export default function CADEditor({
             )}
           </div>
         )}
-
-
 
         {!selectedLevelId && !isLoadingLevels && levels.length > 0 && (
           <div className="text-xs text-red-600 font-medium">
@@ -1617,10 +1758,10 @@ export default function CADEditor({
                         const currentDoor = el as Door;
                         const hostWall = currentDoor.wallId
                           ? (prev.find(
-                            (w) =>
-                              w.type === "wall" &&
-                              w.id === currentDoor.wallId,
-                          ) as Wall | undefined)
+                              (w) =>
+                                w.type === "wall" &&
+                                w.id === currentDoor.wallId,
+                            ) as Wall | undefined)
                           : undefined;
                         const constrained = constrainOpeningOnWall(
                           currentDoor.position,
@@ -1646,7 +1787,7 @@ export default function CADEditor({
                       }),
                     );
                   }}
-                  className="border rounded px-2 py-1 bg-white text-sm max-w-[120px]"
+                  className="border rounded px-2 py-1 bg-white text-sm max-w-30"
                 >
                   <option value="">Default</option>
                   {doorLibrary.map((d) => (
@@ -1687,6 +1828,82 @@ export default function CADEditor({
                     ? "Outside"
                     : "Inside"}
                 </button>
+              </div>
+            </>
+          );
+        })()}
+
+        {(() => {
+          const selectedWindow = elements.find(
+            (element) =>
+              selectedIds.includes(element.id) && element.type === "window",
+          ) as Window | undefined;
+
+          if (!selectedWindow) return null;
+
+          return (
+            <>
+              <div className="mx-2 h-6 w-px bg-gray-300" />
+              <div className="flex items-center gap-1 text-xs text-gray-700">
+                <span className="mr-1 font-medium">Window:</span>
+                <select
+                  value={
+                    (selectedWindow as any).metadata?.window_model_url ||
+                    (selectedWindow as any).metadata?.windowModelUrl ||
+                    ""
+                  }
+                  onChange={(e) => {
+                    const url = e.target.value || null;
+                    const preset = deriveWindowPreset(url);
+                    setElements((prev) =>
+                      prev.map((el) => {
+                        if (
+                          el.id !== selectedWindow.id ||
+                          el.type !== "window"
+                        ) {
+                          return el;
+                        }
+
+                        const currentWindow = el as Window;
+                        const hostWall = currentWindow.wallId
+                          ? (prev.find(
+                              (w) =>
+                                w.type === "wall" &&
+                                w.id === currentWindow.wallId,
+                            ) as Wall | undefined)
+                          : undefined;
+                        const constrained = constrainOpeningOnWall(
+                          currentWindow.position,
+                          hostWall,
+                          preset.width,
+                        );
+
+                        return {
+                          ...el,
+                          width: preset.width,
+                          height: preset.height,
+                          position: constrained.position,
+                          orientation: constrained.orientation,
+                          material: preset.material,
+                          glazing: preset.glazing,
+                          metadata: {
+                            ...el.metadata,
+                            window_model_url: url,
+                            window_style: preset.windowStyle,
+                          },
+                        };
+                      }),
+                    );
+                  }}
+                  className="border rounded px-2 py-1 bg-white text-sm max-w-30"
+                >
+                  <option value="">Default</option>
+                  {windowLibrary.map((w) => (
+                    <option key={w.path} value={w.raw_url || w.download_url}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </>
           );

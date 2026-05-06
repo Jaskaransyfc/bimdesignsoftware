@@ -198,7 +198,7 @@ export default function Model3DPreview({
       targetWidth?: number,
       targetHeight?: number,
       targetDepth?: number,
-      assetName?: string
+      assetName?: string,
     ) => {
       // Ensure matrices are up to date
       obj.updateMatrixWorld(true);
@@ -224,7 +224,7 @@ export default function Model3DPreview({
         const scaleZ = targetDepth
           ? targetDepth / Math.max(size.z, 0.001)
           : Math.min(scaleX, scaleY);
-        
+
         obj.scale.set(
           obj.scale.x * scaleX,
           obj.scale.y * scaleY,
@@ -264,7 +264,7 @@ export default function Model3DPreview({
             metalness: isGlass ? 0.2 : 0.1,
             transparent: isGlass,
             opacity: isGlass ? 0.6 : 1.0,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
           });
         }
       });
@@ -807,7 +807,7 @@ export default function Model3DPreview({
             doorW,
             doorH,
             hostWall ? hostWall.thickness / MM_SCALE : 0.46,
-            normalizedUrl
+            normalizedUrl,
           );
 
           // Then rotate
@@ -884,39 +884,7 @@ export default function Model3DPreview({
         roughness: 0.8,
       });
 
-      // Window frame (simplified as a hollow border using 4 boxes)
-      const fT = 0.1; // frame thickness
-      const frameThickness = hostWall
-        ? hostWall.thickness / MM_SCALE + 0.02
-        : 0.48;
-      const winFrame = new THREE.Group();
-
-      const top = new THREE.Mesh(
-        new THREE.BoxGeometry(winW + fT, fT, frameThickness),
-        frameMaterial,
-      );
-      top.position.y = winH / 2 + fT / 2;
-
-      const bottom = new THREE.Mesh(
-        new THREE.BoxGeometry(winW + fT, fT, frameThickness),
-        frameMaterial,
-      );
-      bottom.position.y = -winH / 2 - fT / 2;
-
-      const left = new THREE.Mesh(
-        new THREE.BoxGeometry(fT, winH, frameThickness),
-        frameMaterial,
-      );
-      left.position.x = -winW / 2 - fT / 2;
-
-      const right = new THREE.Mesh(
-        new THREE.BoxGeometry(fT, winH, frameThickness),
-        frameMaterial,
-      );
-      right.position.x = winW / 2 + fT / 2;
-
-      winFrame.add(top, bottom, left, right);
-
+      const element = windowById.get(window_.id);
       const projectedWindow = projectOpeningCenterToWall(
         window_,
         hostWall,
@@ -925,26 +893,138 @@ export default function Model3DPreview({
       const px = projectedWindow.x;
       const pz = projectedWindow.z;
 
-      winFrame.position.set(px, sillHeight + winH / 2, pz);
-      if (vectors)
-        winFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-      scene.add(winFrame);
+      const renderProceduralWindow = () => {
+        // Window frame (simplified as a hollow border using 4 boxes)
+        const fT = 0.1; // frame thickness
+        const frameThickness = hostWall
+          ? hostWall.thickness / MM_SCALE + 0.02
+          : 0.48;
+        const winFrame = new THREE.Group();
 
-      const glass = new THREE.Mesh(
-        new THREE.BoxGeometry(winW - 0.05, winH - 0.05, 0.1),
-        new THREE.MeshStandardMaterial({
-          color: "#7dd3fc",
-          transparent: true,
-          opacity: 0.5,
-          roughness: 0.2,
-          metalness: 0.15,
-        }),
-      );
-      glass.position.set(px, sillHeight + winH / 2, pz);
-      if (vectors) {
-        glass.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+        const top = new THREE.Mesh(
+          new THREE.BoxGeometry(winW + fT, fT, frameThickness),
+          frameMaterial,
+        );
+        top.position.y = winH / 2 + fT / 2;
+
+        const bottom = new THREE.Mesh(
+          new THREE.BoxGeometry(winW + fT, fT, frameThickness),
+          frameMaterial,
+        );
+        bottom.position.y = -winH / 2 - fT / 2;
+
+        const left = new THREE.Mesh(
+          new THREE.BoxGeometry(fT, winH, frameThickness),
+          frameMaterial,
+        );
+        left.position.x = -winW / 2 - fT / 2;
+
+        const right = new THREE.Mesh(
+          new THREE.BoxGeometry(fT, winH, frameThickness),
+          frameMaterial,
+        );
+        right.position.x = winW / 2 + fT / 2;
+
+        winFrame.add(top, bottom, left, right);
+
+        winFrame.position.set(px, sillHeight + winH / 2, pz);
+        if (vectors)
+          winFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+        scene.add(winFrame);
+
+        const glass = new THREE.Mesh(
+          new THREE.BoxGeometry(winW - 0.05, winH - 0.05, 0.1),
+          new THREE.MeshStandardMaterial({
+            color: "#7dd3fc",
+            transparent: true,
+            opacity: 0.5,
+            roughness: 0.2,
+            metalness: 0.15,
+          }),
+        );
+        glass.position.set(px, sillHeight + winH / 2, pz);
+        if (vectors) {
+          glass.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+        }
+        scene.add(glass);
+      };
+
+      const modelUrl =
+        (element as any)?.metadata?.window_model_url ||
+        (element as any)?.metadata?.windowModelUrl;
+      if (modelUrl) {
+        const normalizedUrl = String(modelUrl).trim();
+        const lowerUrl = normalizedUrl.split("?")[0].toLowerCase();
+        const placeholder = new THREE.Group();
+        placeholder.position.set(px, sillHeight + winH / 2, pz);
+        scene.add(placeholder);
+
+        const placeWindowObject = (obj: THREE.Object3D) => {
+          normalizeImportedModel(
+            obj,
+            new THREE.Vector3(0, 0, 0),
+            winW,
+            winH,
+            hostWall ? hostWall.thickness / MM_SCALE : 0.46,
+            normalizedUrl,
+          );
+
+          obj.rotation.y = vectors
+            ? -Math.atan2(vectors.dir.z, vectors.dir.x)
+            : 0;
+
+          placeholder.add(obj);
+          interactiveObjects.push(obj);
+        };
+
+        const failToProcedural = (reason: any) => {
+          console.warn(
+            "Window model load failed, using procedural fallback:",
+            reason,
+          );
+          scene.remove(placeholder);
+          renderProceduralWindow();
+        };
+
+        if (lowerUrl.endsWith(".stl")) {
+          const stlLoader = new STLLoader();
+          stlLoader.load(
+            normalizedUrl,
+            (geometry: any) => {
+              const mesh = new THREE.Mesh(geometry);
+              placeWindowObject(mesh);
+            },
+            undefined,
+            failToProcedural,
+          );
+          return;
+        }
+
+        if (lowerUrl.endsWith(".obj")) {
+          const objLoader = new OBJLoader();
+          objLoader.load(
+            normalizedUrl,
+            placeWindowObject,
+            undefined,
+            failToProcedural,
+          );
+          return;
+        }
+
+        const gltfLoader = new GLTFLoader();
+        gltfLoader.load(
+          normalizedUrl,
+          (gltf: any) => {
+            const obj = gltf.scene || gltf.scenes?.[0] || new THREE.Group();
+            placeWindowObject(obj);
+          },
+          undefined,
+          failToProcedural,
+        );
+        return;
       }
-      scene.add(glass);
+
+      renderProceduralWindow();
     });
 
     const furnitureColorMap: Record<string, string> = {

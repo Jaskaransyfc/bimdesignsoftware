@@ -65,6 +65,50 @@ def list_freecad_doors():
     return results
 
 
+@router.get("/windows", response_model=List[dict])
+def list_freecad_windows():
+    """Return a list of window-related .stl (and other) files from FreeCAD-library.
+
+    This queries the repository tree (recursive) and filters for files whose
+    path or filename contains "window" and have a renderable extension (.stl, .obj, .gltf, .glb).
+    Returns simplified objects with `name`, `path`, and `raw_url`.
+    """
+    owner = "FreeCAD"
+    repo = "FreeCAD-library"
+    branch_candidates = ["master", "main"]
+
+    tree = None
+    for br in branch_candidates:
+        try:
+            data = _fetch_github_repo_tree(owner, repo, br)
+            if data and data.get("tree"):
+                tree = data["tree"]
+                break
+        except Exception:
+            continue
+
+    if not tree:
+        return []
+
+    exts = (".stl", ".obj", ".gltf", ".glb")
+    results = []
+    seen = set()
+    for entry in tree:
+        path = entry.get("path", "")
+        if not path:
+            continue
+        lower = path.lower()
+        if "window" in lower and "arch" in lower and lower.endswith(exts):
+            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/master/{path}"
+            name = os.path.basename(path)
+            if raw_url not in seen:
+                results.append({"name": name, "path": path, "raw_url": raw_url})
+                seen.add(raw_url)
+
+    results.sort(key=lambda x: x["name"])
+    return results
+
+
 @router.get("/walls", response_model=List[dict])
 def list_freecad_walls():
     """Return a list of wall-related .stl/.obj/.gltf/.glb files from FreeCAD-library.
