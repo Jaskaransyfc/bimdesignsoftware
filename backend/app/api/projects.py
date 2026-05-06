@@ -23,7 +23,23 @@ import io
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-ALLOWED_EXTENSIONS = {"ifc", "rvt", "glb", "gltf", "obj", "fbx", "dae", "stp", "step", "xyz", "e57", "blend"}
+ALLOWED_EXTENSIONS = {
+    "ifc",
+    "rvt",
+    "glb",
+    "gltf",
+    "obj",
+    "fbx",
+    "dae",
+    "stp",
+    "step",
+    "xyz",
+    "e57",
+    "blend",
+    "dxf",
+    "dwg",
+    "dwf",
+}
 
 
 def _is_unavailable_plan_svg(svg_content: bytes) -> bool:

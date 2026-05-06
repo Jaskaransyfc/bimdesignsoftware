@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
-from .api import projects, elements, auth, modeling, drawings, engines, collab, advanced_modules, levels, furniture, models, enterprise_modules
+from .api import projects, elements, auth, modeling, drawings, engines, collab, advanced_modules, levels, furniture, models, enterprise_modules, freecad
 from .database import engine, Base
 from .config import STORAGE_MODE, LOCAL_STORAGE_PATH
 import os
@@ -87,3 +87,4 @@ app.include_router(levels.router)
 app.include_router(furniture.router)
 app.include_router(models.router)
 app.include_router(enterprise_modules.router)
+app.include_router(freecad.router)

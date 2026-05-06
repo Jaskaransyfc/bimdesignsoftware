@@ -56,13 +56,13 @@ export default function UploadPage() {
       setFile(droppedFile);
     } else {
       alert(
-        "Unsupported file format. Please use: IFC, RVT, GLB, GLTF, OBJ, FBX, DAE, STP, STEP, XYZ, E57",
+        "Unsupported file format. Please use: IFC, RVT, GLB, GLTF, OBJ, FBX, DAE, STP, STEP, XYZ, E57, DWG, DWF, DXF",
       );
     }
   };
 
   const acceptFormats =
-    ".ifc,.rvt,.glb,.gltf,.obj,.fbx,.dae,.stp,.step,.xyz,.e57,.blend";
+    ".ifc,.rvt,.glb,.gltf,.obj,.fbx,.dae,.stp,.step,.xyz,.e57,.blend,.dwg,.dwf,.dxf,.mtl";
 
   const isSupportedFormat = (filename: string) => {
     const ext = filename.split(".").pop()?.toLowerCase();
@@ -80,6 +80,10 @@ export default function UploadPage() {
       "xyz",
       "e57",
       "blend",
+      "dwg",
+      "dwf",
+      "dxf",
+      "mtl",
     ];
     return allowed.includes(ext);
   };
@@ -103,7 +107,7 @@ export default function UploadPage() {
 
     if (!isSupportedFormat(file.name)) {
       alert(
-        "Unsupported file format. Please use: IFC, RVT, GLB, GLTF, OBJ, FBX, DAE, STP, STEP, XYZ, E57",
+        "Unsupported file format. Please use: IFC, RVT, GLB, GLTF, OBJ, FBX, DAE, STP, STEP, XYZ, E57, DWG, DWF, DXF",
       );
       return;
     }
@@ -216,6 +220,7 @@ export default function UploadPage() {
             </h1>
             <p className="text-white/35 text-sm">
               Upload any supported 3D model. IFC files will extract BIM data.
+              DWG/DWF files have limited visualization support.
             </p>
           </div>
 
@@ -365,11 +370,11 @@ export default function UploadPage() {
                     <p className="font-medium text-sm">
                       {file
                         ? file.name
-                        : "Drag & drop or click to browse (.ifc, .rvt, .glb, .obj, .fbx, ...)"}
+                        : "Drag & drop or click to browse (.ifc, .rvt, .glb, .obj, .fbx, .dwg, .dxf, ...)"}
                     </p>
                     <p className="text-white/25 text-xs mt-2">
                       Supported: IFC, RVT, GLB, GLTF, OBJ, FBX, DAE, STP, STEP,
-                      XYZ, E57
+                      XYZ, E57, DWG, DWF, DXF
                     </p>
                     {fileSizeMB && (
                       <p className="text-white/30 text-xs mt-1">

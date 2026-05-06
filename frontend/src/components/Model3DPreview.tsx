@@ -11,6 +11,10 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 // @ts-ignore
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+// @ts-ignore
+import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
+// @ts-ignore
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { convert2DTo3D } from "@/lib/geometry3d";
 import { Door, Element, FurnitureItem, Window } from "@/types/modeling";
 
@@ -20,15 +24,16 @@ interface Model3DPreviewProps {
 }
 
 const PLAN_SCALE = 10;
-const MM_SCALE = 500; // Consistent with MM_TO_CANVAS = 50 and PLAN_SCALE = 10
-const MM_TO_CANVAS = 50; // From CADEditor - 1 meter = 50 canvas pixels
-const METERS_TO_WORLD = MM_TO_CANVAS / PLAN_SCALE; // 50 / 10 = 5 (scale factor for furniture from meters to world units)
+const MM_SCALE = 500; // 1000mm = 2 units (consistent with 1px = 50mm and PLAN_SCALE = 10)
+const MM_TO_CANVAS = 50; // 1 pixel = 50mm
+const METERS_TO_WORLD = 2; // 1 meter = 2 units (since 1m = 20px and 10px = 1 unit)
 
 export default function Model3DPreview({
   elements,
   projectId,
 }: Model3DPreviewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [showDebugGuides, setShowDebugGuides] = useState(false);
   const [furnitureItems, setFurnitureItems] = useState<FurnitureItem[]>([]);
   const [importedModels, setImportedModels] = useState<
     Array<{
@@ -150,13 +155,30 @@ export default function Model3DPreview({
     controls.enableDamping = true;
     controls.target.set(0, 20, 0);
 
-    const transformControls = new TransformControls(
-      camera,
-      renderer.domElement,
-    );
-    transformControls.setMode("translate");
-    transformControls.showY = false;
-    scene.add(transformControls);
+    let transformControls: any = null;
+    try {
+      const tc = new TransformControls(camera, renderer.domElement);
+      // In some versions of Three.js, TransformControls is not a direct Object3D
+      // but we still need to add it to the scene if it has a visual representation.
+      if (tc) {
+        tc.setMode("translate");
+        tc.showY = false;
+        if (tc.isObject3D || tc instanceof THREE.Object3D) {
+          scene.add(tc);
+        } else if (tc.getHelper) {
+          scene.add(tc.getHelper());
+        } else {
+          // Fallback: try adding directly if no other option
+          scene.add(tc as any);
+        }
+        transformControls = tc;
+      }
+    } catch (error) {
+      console.warn(
+        "Failed to initialize TransformControls, continuing without it:",
+        error,
+      );
+    }
 
     const interactiveObjects: THREE.Object3D[] = [];
     let selectedObject: THREE.Object3D | null = null;
@@ -173,27 +195,79 @@ export default function Model3DPreview({
     const normalizeImportedModel = (
       obj: THREE.Object3D,
       targetPosition: THREE.Vector3,
+      targetWidth?: number,
+      targetHeight?: number,
+      targetDepth?: number,
+      assetName?: string
     ) => {
-      // Normalize imported model size to a realistic furniture range and center
-      // it so the object sits as a single grounded asset rather than drifting.
-      const targetMaxSize = METERS_TO_WORLD * 2.2;
+      // Ensure matrices are up to date
+      obj.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = new THREE.Vector3();
+      box.getSize(size);
 
-      const preBox = new THREE.Box3().setFromObject(obj);
-      const preSize = new THREE.Vector3();
-      preBox.getSize(preSize);
-      const maxDim = Math.max(preSize.x, preSize.y, preSize.z);
-      if (maxDim > 0.0001) {
-        const factor = targetMaxSize / maxDim;
-        obj.scale.multiplyScalar(factor);
+      // Auto-orientation: Many CAD models load lying flat (Z-up in CAD, Y-up in Three.js)
+      // If Y is significantly smaller than both X and Z, it's likely lying down
+      if (size.y < size.x * 0.5 && size.y < size.z * 0.5) {
+        obj.rotateX(-Math.PI / 2);
+        obj.updateMatrixWorld(true);
+        box.setFromObject(obj);
+        box.getSize(size);
       }
 
+      // Scaling logic
+      if (targetWidth !== undefined && targetHeight !== undefined) {
+        // Precise scaling to specified dimensions
+        const scaleX = targetWidth / Math.max(size.x, 0.001);
+        const scaleY = targetHeight / Math.max(size.y, 0.001);
+        // Use specified depth or maintain realistic thickness
+        const scaleZ = targetDepth
+          ? targetDepth / Math.max(size.z, 0.001)
+          : Math.min(scaleX, scaleY);
+        
+        obj.scale.set(
+          obj.scale.x * scaleX,
+          obj.scale.y * scaleY,
+          obj.scale.z * scaleZ,
+        );
+      } else {
+        const targetMaxSize = METERS_TO_WORLD * 2.2;
+        const maxDim = Math.max(size.x, size.y, size.z);
+        if (maxDim > 0.0001) {
+          const factor = targetMaxSize / maxDim;
+          obj.scale.multiplyScalar(factor);
+        }
+      }
+
+      // Re-calculate bounds after scaling
+      obj.updateMatrixWorld(true);
       const postBox = new THREE.Box3().setFromObject(obj);
       const center = new THREE.Vector3();
       postBox.getCenter(center);
 
+      // Final positioning
       obj.position.x += targetPosition.x - center.x;
       obj.position.z += targetPosition.z - center.z;
       obj.position.y += targetPosition.y - postBox.min.y;
+
+      // Premium Materials
+      const isGlass = assetName?.toLowerCase().includes("glass");
+      const baseColor = isGlass ? "#93c5fd" : "#4a3122"; // Blueish for glass, wood-brown otherwise
+
+      obj.traverse((child: any) => {
+        if (child instanceof THREE.Mesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+          child.material = new THREE.MeshStandardMaterial({
+            color: baseColor,
+            roughness: isGlass ? 0.1 : 0.7,
+            metalness: isGlass ? 0.2 : 0.1,
+            transparent: isGlass,
+            opacity: isGlass ? 0.6 : 1.0,
+            side: THREE.DoubleSide
+          });
+        }
+      });
     };
 
     const findInteractiveRoot = (
@@ -214,6 +288,7 @@ export default function Model3DPreview({
 
     const selectObject = (obj: THREE.Object3D | null) => {
       selectedObject = obj;
+      if (!transformControls) return;
       if (selectedObject) {
         transformControls.attach(selectedObject);
       } else {
@@ -272,62 +347,70 @@ export default function Model3DPreview({
       selectObject(null);
     };
 
-    transformControls.addEventListener("dragging-changed", (e: any) => {
-      controls.enabled = !e.value;
-    });
+    if (transformControls) {
+      transformControls.addEventListener("dragging-changed", (e: any) => {
+        controls.enabled = !e.value;
+      });
 
-    transformControls.addEventListener("objectChange", () => {
-      if (!selectedObject) return;
-      // Keep moved objects attached to the ground.
-      snapObjectToGround(selectedObject);
-    });
+      transformControls.addEventListener("objectChange", () => {
+        if (!selectedObject) return;
+        // Keep moved objects attached to the ground.
+        snapObjectToGround(selectedObject);
+      });
 
-    transformControls.addEventListener("mouseUp", async () => {
-      if (!selectedObject) return;
-      const kind = selectedObject.userData?.kind;
-      const id = selectedObject.userData?.id;
-      if (kind !== "furniture" || !id) return;
+      transformControls.addEventListener("mouseUp", async () => {
+        if (!selectedObject) return;
+        const kind = selectedObject.userData?.kind;
+        const id = selectedObject.userData?.id;
+        if (kind !== "furniture" || !id) return;
 
-      const x = selectedObject.position.x / METERS_TO_WORLD;
-      const y = selectedObject.position.z / METERS_TO_WORLD;
-      const z = (selectedObject.rotation.y * 180) / Math.PI;
+        const x = selectedObject.position.x / METERS_TO_WORLD;
+        const y = selectedObject.position.z / METERS_TO_WORLD;
+        const z = (selectedObject.rotation.y * 180) / Math.PI;
 
-      try {
-        await fetch(`/api/projects/${projectId}/furniture/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ x, y, z }),
-        });
+        try {
+          await fetch(`/api/projects/${projectId}/furniture/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ x, y, z }),
+          });
 
-        setFurnitureItems((prev) =>
-          prev.map((item) =>
-            item.id === id
-              ? {
-                  ...item,
-                  x,
-                  y,
-                  z,
-                }
-              : item,
-          ),
-        );
-      } catch (error) {
-        console.error("❌ Failed to persist furniture position:", error);
-      }
-    });
+          setFurnitureItems((prev) =>
+            prev.map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    x,
+                    y,
+                    z,
+                  }
+                : item,
+            ),
+          );
+        } catch (error) {
+          console.error("❌ Failed to persist furniture position:", error);
+        }
+      });
+    }
 
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
 
-    scene.add(new THREE.AmbientLight("#ffffff", 0.7));
+    // Enhanced lighting for better material visibility of imported models
+    scene.add(new THREE.AmbientLight("#ffffff", 0.8));
 
-    const keyLight = new THREE.DirectionalLight("#ffffff", 0.8);
+    const keyLight = new THREE.DirectionalLight("#ffffff", 1.0);
     keyLight.position.set(150, 180, 120);
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight("#93c5fd", 0.45);
+    const fillLight = new THREE.DirectionalLight("#93c5fd", 0.6);
     fillLight.position.set(-120, 100, -100);
     scene.add(fillLight);
+
+    // Add back light for better depth and model visibility
+    const backLight = new THREE.DirectionalLight("#ffffff", 0.4);
+    backLight.position.set(0, 150, -200);
+    scene.add(backLight);
 
     const grid = new THREE.GridHelper(800, 80, "#334155", "#334155");
     scene.add(grid);
@@ -360,6 +443,52 @@ export default function Model3DPreview({
       return { dir, normal };
     };
 
+    const projectOpeningCenterToWall = (
+      opening: Door | Window,
+      wall?: {
+        startPoint: { x: number; y: number };
+        endPoint: { x: number; y: number };
+      },
+      openingWidthWorld = 0,
+    ) => {
+      if (!wall) {
+        return {
+          x: opening.position.x / PLAN_SCALE,
+          z: opening.position.y / PLAN_SCALE,
+          distAlongWall: undefined as number | undefined,
+        };
+      }
+
+      const dx = wall.endPoint.x - wall.startPoint.x;
+      const dy = wall.endPoint.y - wall.startPoint.y;
+      const wallLen2D = Math.hypot(dx, dy);
+      const ux = dx / (wallLen2D || 1);
+      const uy = dy / (wallLen2D || 1);
+
+      const relX = opening.position.x - wall.startPoint.x;
+      const relY = opening.position.y - wall.startPoint.y;
+      let distAlongWall = (relX * ux + relY * uy) / PLAN_SCALE;
+
+      // Keep opening center within host wall extents so frames/leaf stay in-bounds.
+      if (openingWidthWorld > 0) {
+        const wallLengthWorld = wallLen2D / PLAN_SCALE;
+        const minCenter = openingWidthWorld / 2;
+        const maxCenter = wallLengthWorld - openingWidthWorld / 2;
+        if (maxCenter >= minCenter) {
+          distAlongWall = Math.min(
+            maxCenter,
+            Math.max(minCenter, distAlongWall),
+          );
+        }
+      }
+
+      return {
+        x: wall.startPoint.x / PLAN_SCALE + ux * distAlongWall,
+        z: wall.startPoint.y / PLAN_SCALE + uy * distAlongWall,
+        distAlongWall,
+      };
+    };
+
     const wallToOpeningMap = new Map<string, (Door | Window)[]>();
     elements.forEach((el) => {
       if (el.type === "door" || el.type === "window") {
@@ -390,26 +519,40 @@ export default function Model3DPreview({
       shape.closePath();
 
       // Add holes for doors and windows
+      // Project the opening center onto the wall direction vector for accurate hole placement
+      const wallDirLen = Math.hypot(dx, dy);
+      const wallUnitX = dx / (wallDirLen || 1);
+      const wallUnitY = dy / (wallDirLen || 1);
+
       openings.forEach((op) => {
         const opW = op.width / MM_SCALE;
         const opH = op.height / MM_SCALE;
 
-        // Calculate offset from wall start
-        const dist =
-          Math.hypot(
-            op.position.x - wall.startPoint.x,
-            op.position.y - wall.startPoint.y,
-          ) / PLAN_SCALE;
-        const sillH =
-          (op.type === "window" ? (op as any).position.z || 1000 : 0) /
-          MM_SCALE;
+        // Project op position onto wall direction to get distance along the wall
+        const relX = op.position.x - wall.startPoint.x;
+        const relY = op.position.y - wall.startPoint.y;
+        const distAlongWallRaw =
+          (relX * wallUnitX + relY * wallUnitY) / PLAN_SCALE;
+        const minCenter = opW / 2;
+        const maxCenter = length - opW / 2;
+        const distAlongWall =
+          maxCenter >= minCenter
+            ? Math.min(maxCenter, Math.max(minCenter, distAlongWallRaw))
+            : distAlongWallRaw;
+
+        const sillH = op.type === "window" ? (op as any).sillHeight || 1.0 : 0;
 
         const hole = new THREE.Path();
-        const xStart = dist - opW / 2;
-        hole.moveTo(xStart, sillH);
-        hole.lineTo(xStart + opW, sillH);
-        hole.lineTo(xStart + opW, sillH + opH);
-        hole.lineTo(xStart, sillH + opH);
+        const xStart = distAlongWall - opW / 2;
+        // Clamp to wall extents to avoid holes outside the wall
+        const clampedStart = Math.max(0.05, xStart);
+        const clampedEnd = Math.min(length - 0.05, xStart + opW);
+
+        // Draw hole Clockwise (opposite to outer shape) for proper triangulation
+        hole.moveTo(clampedStart, sillH);
+        hole.lineTo(clampedStart, sillH + opH);
+        hole.lineTo(clampedEnd, sillH + opH);
+        hole.lineTo(clampedEnd, sillH);
         hole.closePath();
         shape.holes.push(hole);
       });
@@ -418,26 +561,22 @@ export default function Model3DPreview({
         depth: thickness,
         bevelEnabled: false,
       });
+      // Center the geometry on the extrusion axis so it sits centered on the plan line
+      geometry.translate(0, 0, -thickness / 2);
+
       const material = new THREE.MeshStandardMaterial({
         color: "#d4a574",
         roughness: 0.85,
         metalness: 0.05,
       });
-      const mesh = new THREE.Mesh(geometry, material);
 
-      // Position: Start point, centered on thickness
+      const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(
         wall.startPoint.x / PLAN_SCALE,
         0,
         wall.startPoint.y / PLAN_SCALE,
       );
       mesh.rotation.y = -Math.atan2(dy, dx);
-
-      // Offset by half thickness to center the wall on the line
-      const angle = -Math.atan2(dy, dx);
-      mesh.position.x += Math.sin(angle) * (thickness / 2);
-      mesh.position.z += Math.cos(angle) * (thickness / 2);
-
       scene.add(mesh);
 
       // Add corner fillers (columns) to hide gaps between walls
@@ -461,96 +600,274 @@ export default function Model3DPreview({
       scene.add(endFiller);
     });
 
+    if (showDebugGuides) {
+      const wallAxisMaterial = new THREE.LineBasicMaterial({
+        color: "#22d3ee",
+      });
+      const openingAnchorMaterial = new THREE.MeshBasicMaterial({
+        color: "#f97316",
+      });
+      const openingRawMaterial = new THREE.MeshBasicMaterial({
+        color: "#ef4444",
+      });
+
+      model3D.walls.forEach((wall) => {
+        const axisGeometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(
+            wall.startPoint.x / PLAN_SCALE,
+            0.15,
+            wall.startPoint.y / PLAN_SCALE,
+          ),
+          new THREE.Vector3(
+            wall.endPoint.x / PLAN_SCALE,
+            0.15,
+            wall.endPoint.y / PLAN_SCALE,
+          ),
+        ]);
+        scene.add(new THREE.Line(axisGeometry, wallAxisMaterial.clone()));
+
+        const openings = wallToOpeningMap.get(wall.id) || [];
+        openings.forEach((op) => {
+          const opW = Math.max(op.width / MM_SCALE, 0.1);
+          const projected = projectOpeningCenterToWall(op, wall, opW);
+          const projectedDot = new THREE.Mesh(
+            new THREE.SphereGeometry(0.08, 8, 8),
+            openingAnchorMaterial.clone(),
+          );
+          projectedDot.position.set(projected.x, 0.2, projected.z);
+          scene.add(projectedDot);
+
+          const rawDot = new THREE.Mesh(
+            new THREE.SphereGeometry(0.06, 8, 8),
+            openingRawMaterial.clone(),
+          );
+          rawDot.position.set(
+            op.position.x / PLAN_SCALE,
+            0.2,
+            op.position.y / PLAN_SCALE,
+          );
+          scene.add(rawDot);
+        });
+      });
+    }
+
     model3D.doors.forEach((door) => {
       const doorW = Math.max(door.width / MM_SCALE, 0.1);
       const doorH = Math.max(door.height / MM_SCALE, 0.1);
       const hostWall = door.wallId ? wallById.get(door.wallId) : undefined;
       const vectors = hostWall ? getWallVectors(hostWall) : null;
 
-      const doorLeaf = new THREE.Mesh(
-        new THREE.BoxGeometry(doorW - 0.05, doorH - 0.05, 0.2),
-        new THREE.MeshStandardMaterial({
-          color: "#7c2d12",
-          roughness: 0.55,
-          metalness: 0.1,
-        }),
-      );
+      const element = doorById.get(door.id);
 
-      const px_base = door.position.x / PLAN_SCALE;
-      const pz_base = door.position.y / PLAN_SCALE;
+      const projectedDoor = projectOpeningCenterToWall(door, hostWall, doorW);
+      const px = projectedDoor.x;
+      const pz = projectedDoor.z;
 
-      // Apply the same offset as the wall to center it
-      const angle = hostWall
-        ? -Math.atan2(
-            hostWall.endPoint.y - hostWall.startPoint.y,
-            hostWall.endPoint.x - hostWall.startPoint.x,
-          )
-        : 0;
-      const wallThickness = hostWall ? hostWall.thickness / MM_SCALE : 0.46;
-      const px = px_base + Math.sin(angle) * (wallThickness / 2);
-      const pz = pz_base + Math.cos(angle) * (wallThickness / 2);
+      const renderProceduralDoor = () => {
+        const doorStyle = String(
+          (element as any)?.metadata?.door_style || "",
+        ).toLowerCase();
+        const isDouble =
+          door.swingDirection === "double" || doorStyle === "double";
+        const isMulti = doorStyle === "multi";
+        const isGlass =
+          String((door as any).material || "").toLowerCase() === "glass" ||
+          doorStyle === "glass";
 
-      doorLeaf.position.set(px, doorH / 2, pz);
-      if (vectors) {
-        doorLeaf.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+        const leafMaterial = new THREE.MeshStandardMaterial({
+          color: isGlass ? "#9cc7d8" : "#7c2d12",
+          roughness: isGlass ? 0.2 : 0.55,
+          metalness: isGlass ? 0.15 : 0.1,
+          transparent: isGlass,
+          opacity: isGlass ? 0.65 : 1,
+        });
+
+        const addLeaf = (
+          centerX: number,
+          centerY: number,
+          centerZ: number,
+          leafW: number,
+        ) => {
+          const doorLeaf = new THREE.Mesh(
+            new THREE.BoxGeometry(
+              Math.max(leafW - 0.05, 0.08),
+              doorH - 0.05,
+              doorLeafDepth,
+            ),
+            leafMaterial,
+          );
+          doorLeaf.position.set(centerX, centerY, centerZ);
+          if (vectors) {
+            doorLeaf.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+          }
+          scene.add(doorLeaf);
+        };
+
+        if (isMulti) {
+          const panelW = doorW / 3;
+          addLeaf(
+            px - (vectors?.dir.x || 0) * panelW,
+            doorH / 2,
+            pz - (vectors?.dir.z || 0) * panelW,
+            panelW,
+          );
+          addLeaf(px, doorH / 2, pz, panelW);
+          addLeaf(
+            px + (vectors?.dir.x || 0) * panelW,
+            doorH / 2,
+            pz + (vectors?.dir.z || 0) * panelW,
+            panelW,
+          );
+        } else if (isDouble) {
+          const halfW = doorW / 2;
+          addLeaf(
+            px - (vectors?.dir.x || 0) * (halfW / 2),
+            doorH / 2,
+            pz - (vectors?.dir.z || 0) * (halfW / 2),
+            halfW,
+          );
+          addLeaf(
+            px + (vectors?.dir.x || 0) * (halfW / 2),
+            doorH / 2,
+            pz + (vectors?.dir.z || 0) * (halfW / 2),
+            halfW,
+          );
+        } else {
+          addLeaf(px, doorH / 2, pz, doorW);
+        }
+
+        const handle = new THREE.Mesh(
+          new THREE.SphereGeometry(0.05),
+          new THREE.MeshStandardMaterial({ color: "#fbbf24" }),
+        );
+        handle.position.set(
+          px + (vectors?.dir.x || 0) * (doorW * 0.4),
+          doorH / 2,
+          pz + (vectors?.dir.z || 0) * (doorW * 0.4),
+        );
+        scene.add(handle);
+
+        const frameColor = "#522b11";
+        const frameMaterial = new THREE.MeshStandardMaterial({
+          color: frameColor,
+          roughness: 0.7,
+        });
+        const frameThickness = hostWall
+          ? hostWall.thickness / MM_SCALE + 0.05
+          : 0.5;
+
+        const topFrame = new THREE.Mesh(
+          new THREE.BoxGeometry(doorW + 0.1, 0.1, frameThickness),
+          frameMaterial,
+        );
+        topFrame.position.set(px, doorH + 0.05, pz);
+        if (vectors)
+          topFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+        scene.add(topFrame);
+
+        const leftFrame = new THREE.Mesh(
+          new THREE.BoxGeometry(0.1, doorH, frameThickness),
+          frameMaterial,
+        );
+        const lx = px - (vectors?.dir.x || 0) * (doorW / 2 + 0.05);
+        const lz = pz - (vectors?.dir.z || 0) * (doorW / 2 + 0.05);
+        leftFrame.position.set(lx, doorH / 2, lz);
+        if (vectors)
+          leftFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+        scene.add(leftFrame);
+
+        const rightFrame = new THREE.Mesh(
+          new THREE.BoxGeometry(0.1, doorH, frameThickness),
+          frameMaterial,
+        );
+        const rx = px + (vectors?.dir.x || 0) * (doorW / 2 + 0.05);
+        const rz = pz + (vectors?.dir.z || 0) * (doorW / 2 + 0.05);
+        rightFrame.position.set(rx, doorH / 2, rz);
+        if (vectors)
+          rightFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+        scene.add(rightFrame);
+      };
+
+      // If door has a model URL, load by extension. On any failure, fall back to procedural door.
+      const modelUrl =
+        (element as any)?.metadata?.door_model_url ||
+        (element as any)?.metadata?.doorModelUrl;
+      if (modelUrl) {
+        const normalizedUrl = String(modelUrl).trim();
+        const lowerUrl = normalizedUrl.split("?")[0].toLowerCase();
+        const placeholder = new THREE.Group();
+        placeholder.position.set(px, 0, pz);
+        scene.add(placeholder);
+
+        const placeDoorObject = (obj: THREE.Object3D) => {
+          // Normalize FIRST (while unrotated) so we can scale width/height accurately
+          normalizeImportedModel(
+            obj,
+            new THREE.Vector3(0, 0, 0),
+            doorW,
+            doorH,
+            hostWall ? hostWall.thickness / MM_SCALE : 0.46,
+            normalizedUrl
+          );
+
+          // Then rotate
+          obj.rotation.y = vectors
+            ? -Math.atan2(vectors.dir.z, vectors.dir.x)
+            : 0;
+
+          placeholder.add(obj);
+          interactiveObjects.push(obj);
+        };
+
+        const failToProcedural = (reason: any) => {
+          console.warn(
+            "Door model load failed, using procedural fallback:",
+            reason,
+          );
+          scene.remove(placeholder);
+          renderProceduralDoor();
+        };
+
+        if (lowerUrl.endsWith(".stl")) {
+          const stlLoader = new STLLoader();
+          stlLoader.load(
+            normalizedUrl,
+            (geometry: any) => {
+              const mesh = new THREE.Mesh(geometry);
+              placeDoorObject(mesh);
+            },
+            undefined,
+            failToProcedural,
+          );
+          return;
+        }
+
+        if (lowerUrl.endsWith(".obj")) {
+          const objLoader = new OBJLoader();
+          objLoader.load(
+            normalizedUrl,
+            placeDoorObject,
+            undefined,
+            failToProcedural,
+          );
+          return;
+        }
+
+        const gltfLoader = new GLTFLoader();
+        gltfLoader.load(
+          normalizedUrl,
+          (gltf: any) => {
+            const obj = gltf.scene || gltf.scenes?.[0] || new THREE.Group();
+            placeDoorObject(obj);
+          },
+          undefined,
+          failToProcedural,
+        );
+        return;
       }
-      scene.add(doorLeaf);
 
-      // Add a small handle for visibility
-      const handle = new THREE.Mesh(
-        new THREE.SphereGeometry(0.05),
-        new THREE.MeshStandardMaterial({ color: "#fbbf24" }),
-      );
-      handle.position.set(
-        px + (vectors?.dir.x || 0) * (doorW * 0.4),
-        doorH / 2,
-        pz + (vectors?.dir.z || 0) * (doorW * 0.4),
-      );
-      scene.add(handle);
-
-      // Create frame as a dark wooden border
-      const frameColor = "#522b11";
-      const frameMaterial = new THREE.MeshStandardMaterial({
-        color: frameColor,
-        roughness: 0.7,
-      });
-      const frameThickness = hostWall
-        ? hostWall.thickness / MM_SCALE + 0.05
-        : 0.5;
-
-      // Top frame
-      const topFrame = new THREE.Mesh(
-        new THREE.BoxGeometry(doorW + 0.1, 0.1, frameThickness),
-        frameMaterial,
-      );
-      topFrame.position.set(px, doorH + 0.05, pz);
-      if (vectors)
-        topFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-      scene.add(topFrame);
-
-      // Left frame
-      const leftFrame = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, doorH, frameThickness),
-        frameMaterial,
-      );
-      const lx = px - (vectors?.dir.x || 0) * (doorW / 2 + 0.05);
-      const lz = pz - (vectors?.dir.z || 0) * (doorW / 2 + 0.05);
-      leftFrame.position.set(lx, doorH / 2, lz);
-      if (vectors)
-        leftFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-      scene.add(leftFrame);
-
-      // Right frame
-      const rightFrame = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, doorH, frameThickness),
-        frameMaterial,
-      );
-      const rx = px + (vectors?.dir.x || 0) * (doorW / 2 + 0.05);
-      const rz = pz + (vectors?.dir.z || 0) * (doorW / 2 + 0.05);
-      rightFrame.position.set(rx, doorH / 2, rz);
-      if (vectors)
-        rightFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-      scene.add(rightFrame);
+      // Procedural door fallback (default)
+      renderProceduralDoor();
     });
 
     model3D.windows.forEach((window_) => {
@@ -600,17 +917,13 @@ export default function Model3DPreview({
 
       winFrame.add(top, bottom, left, right);
 
-      const px_base = window_.position.x / PLAN_SCALE;
-      const pz_base = window_.position.y / PLAN_SCALE;
-      const angle = hostWall
-        ? -Math.atan2(
-            hostWall.endPoint.y - hostWall.startPoint.y,
-            hostWall.endPoint.x - hostWall.startPoint.x,
-          )
-        : 0;
-      const wallThickness = hostWall ? hostWall.thickness / MM_SCALE : 0.46;
-      const px = px_base + Math.sin(angle) * (wallThickness / 2);
-      const pz = pz_base + Math.cos(angle) * (wallThickness / 2);
+      const projectedWindow = projectOpeningCenterToWall(
+        window_,
+        hostWall,
+        winW,
+      );
+      const px = projectedWindow.x;
+      const pz = projectedWindow.z;
 
       winFrame.position.set(px, sillHeight + winH / 2, pz);
       if (vectors)
@@ -884,6 +1197,9 @@ export default function Model3DPreview({
 
     // Load imported GLTF/GLB models
     if (importedModels.length > 0) {
+      console.log(
+        `🎯 Starting to load ${importedModels.length} imported models...`,
+      );
       const gltfLoader = new GLTFLoader();
       const fbxLoader = new FBXLoader();
       const objLoader = new OBJLoader();
@@ -896,6 +1212,9 @@ export default function Model3DPreview({
         const ext = model.file_path.split(".").pop()?.toLowerCase();
 
         const placeImportedModel = (obj: THREE.Object3D, index: number) => {
+          console.log(
+            `📦 Placing imported model ${index + 1}: ${model.name} (${ext})`,
+          );
           normalizeImportedModel(
             obj,
             new THREE.Vector3(
@@ -928,15 +1247,104 @@ export default function Model3DPreview({
         }
 
         if (ext === "obj") {
-          objLoader.load(
-            modelUrl,
-            (obj: any) => {
-              placeImportedModel(obj, importedModels.indexOf(model));
-              console.log(`✅ Loaded imported OBJ: ${model.name}`);
+          const mtlUrl = modelUrl.replace(/\.obj$/i, ".mtl");
+          const mtlLoader = new MTLLoader();
+
+          // Try to load MTL file if it exists
+          mtlLoader.load(
+            mtlUrl,
+            (materials: any) => {
+              materials.preload();
+              objLoader.setMaterials(materials);
+              objLoader.load(
+                modelUrl,
+                (obj: any) => {
+                  placeImportedModel(obj, importedModels.indexOf(model));
+                  console.log(
+                    `✅ Loaded imported OBJ with materials: ${model.name}`,
+                  );
+                },
+                undefined,
+                (error: any) => {
+                  console.error(`❌ Failed to load OBJ ${model.name}:`, error);
+                  // Fallback: load OBJ without materials
+                  console.log(`⚠️ Retrying OBJ without MTL for ${model.name}`);
+                  objLoader.load(
+                    modelUrl,
+                    (obj: any) => {
+                      // Apply default material if no MTL was loaded
+                      obj.traverse((child: any) => {
+                        if (child instanceof THREE.Mesh && !child.material) {
+                          child.material = new THREE.MeshStandardMaterial({
+                            color: "#888888",
+                            roughness: 0.5,
+                            metalness: 0.1,
+                          });
+                        }
+                      });
+                      placeImportedModel(obj, importedModels.indexOf(model));
+                      console.log(
+                        `✅ Loaded imported OBJ without materials: ${model.name}`,
+                      );
+                    },
+                    undefined,
+                    (error2: any) => {
+                      console.error(
+                        `❌ Failed to load OBJ without MTL ${model.name}:`,
+                        error2,
+                      );
+                    },
+                  );
+                },
+              );
             },
             undefined,
-            (error: any) => {
-              console.error(`❌ Failed to load OBJ ${model.name}:`, error);
+            () => {
+              // MTL file not found, load OBJ without materials
+              console.log(
+                `⚠️ MTL file not found for ${model.name}, loading OBJ without materials`,
+              );
+              objLoader.load(
+                modelUrl,
+                (obj: any) => {
+                  // Apply default material to all meshes
+                  obj.traverse((child: any) => {
+                    if (child instanceof THREE.Mesh) {
+                      child.material = new THREE.MeshStandardMaterial({
+                        color: "#888888",
+                        roughness: 0.5,
+                        metalness: 0.1,
+                      });
+                    }
+                  });
+                  placeImportedModel(obj, importedModels.indexOf(model));
+                  console.log(
+                    `✅ Loaded imported OBJ (no MTL found): ${model.name}`,
+                  );
+                },
+                undefined,
+                (error: any) => {
+                  console.error(`❌ Failed to load OBJ ${model.name}:`, error);
+                },
+              );
+            },
+          );
+          return;
+        }
+
+        if (ext === "stl") {
+          const stlLoader = new STLLoader();
+          stlLoader.load(
+            modelUrl,
+            (geometry: any) => {
+              const mat = new THREE.MeshStandardMaterial({ color: "#888888" });
+              const mesh = new THREE.Mesh(geometry, mat);
+              placeImportedModel(mesh, importedModels.indexOf(model));
+              console.log(`✅ Loaded imported STL: ${model.name}`);
+            },
+            undefined,
+            (err: any) => {
+              console.error(`❌ Failed to load STL ${model.name}:`, err);
             },
           );
           return;
@@ -992,8 +1400,10 @@ export default function Model3DPreview({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", onResize);
       resizeObserver.disconnect();
-      transformControls.detach();
-      transformControls.dispose();
+      if (transformControls) {
+        transformControls.detach();
+        transformControls.dispose();
+      }
       controls.dispose();
       renderer.dispose();
       scene.traverse((obj: THREE.Object3D) => {
@@ -1007,7 +1417,18 @@ export default function Model3DPreview({
         }
       });
     };
-  }, [elements, projectId, furnitureItems, importedModels]);
+  }, [elements, projectId, furnitureItems, importedModels, showDebugGuides]);
 
-  return <div ref={containerRef} className="w-full h-full" />;
+  return (
+    <div className="relative w-full h-full">
+      <div ref={containerRef} className="w-full h-full" />
+      <button
+        type="button"
+        onClick={() => setShowDebugGuides((prev) => !prev)}
+        className="absolute left-3 top-3 z-10 rounded border border-slate-500 bg-slate-900/80 px-3 py-1 text-xs text-slate-100"
+      >
+        {showDebugGuides ? "Hide" : "Show"} Alignment Debug
+      </button>
+    </div>
+  );
 }

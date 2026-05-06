@@ -15,7 +15,23 @@ from .database import SessionLocalSync
 from .models import Project, ProjectStatus, Element, BOQItem
 from .storage import get_file_content, upload_file
 
-ALLOWED_EXTENSIONS = {"ifc", "rvt", "glb", "gltf", "obj", "fbx", "dae", "stp", "step", "xyz", "e57", "blend"}
+ALLOWED_EXTENSIONS = {
+    "ifc",
+    "rvt",
+    "glb",
+    "gltf",
+    "obj",
+    "fbx",
+    "dae",
+    "stp",
+    "step",
+    "xyz",
+    "e57",
+    "blend",
+    "dxf",
+    "dwg",
+    "dwf",
+}
 
 
 def process_upload(project_id: str, extension: str):
@@ -108,6 +124,26 @@ def process_upload(project_id: str, extension: str):
             }
             try:
                 generate_and_store_views_for_project(project_id, preferred_object=viewer_key)
+            except Exception:
+                pass
+
+        # ── AutoCAD formats (accepted upload, limited direct visualization) ──
+        elif extension in ("dwg", "dwf", "dxf"):
+            # Keep project usable even when direct conversion tools are unavailable.
+            project.hierarchy = {
+                "id": "root",
+                "name": project.name,
+                "type": "Project",
+                "children": []
+            }
+            project.viewer_file = None
+            project.xkt_file = None
+            project.error_message = (
+                f".{extension.upper()} uploaded successfully. Direct 3D preview is limited; "
+                "export as GLB/GLTF/OBJ from AutoCAD for full visualization."
+            )
+            try:
+                generate_and_store_views_for_project(project_id)
             except Exception:
                 pass
 

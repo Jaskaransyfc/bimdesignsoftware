@@ -24,11 +24,52 @@ export default function FurnitureModelImport({
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       const ext = selectedFile.name.toLowerCase().split(".").pop();
-      if (!["glb", "gltf", "obj", "fbx"].includes(ext || "")) {
-        setError("❌ Only .glb, .gltf, .obj, and .fbx files are supported");
+      const supported = [
+        "glb",
+        "gltf",
+        "obj",
+        "fbx",
+        "dxf",
+        "dwg",
+        "dwf",
+        "mtl",
+        "ifc",
+        "rvt",
+        "rfa",
+        "stp",
+        "step",
+        "dae",
+        "stl",
+        "3ds",
+        "max",
+        "skp",
+        "blend",
+      ];
+
+      if (!supported.includes(ext || "")) {
+        setError(
+          `❌ File type .${ext} is not supported.\n\nSupported formats: ${supported.map((e) => `.${e}`).join(", ")}`,
+        );
         setFile(null);
         return;
       }
+
+      // Add warning for DWG/DWF files
+      if (["dwg", "dwf"].includes(ext || "")) {
+        setError(
+          `✓ File selected: ${selectedFile.name}\n\n⚠️ ${ext?.toUpperCase()} files have limited 3D visualization. For best results, export from AutoCAD as .obj or .gltf\n\nYou can still upload to proceed.`,
+        );
+        setFile(selectedFile);
+      } else if (ext === "dxf") {
+        setError(
+          `✓ File selected: ${selectedFile.name}\n\n⚠️ DXF files have limited visualization support. GLTF/OBJ export recommended.\n\nYou can still upload to proceed.`,
+        );
+        setFile(selectedFile);
+      } else {
+        setError(null);
+        setFile(selectedFile);
+      }
+
       const fileSizeMB = selectedFile.size / (1024 * 1024);
       if (fileSizeMB > 50) {
         setError(
@@ -37,8 +78,7 @@ export default function FurnitureModelImport({
         setFile(null);
         return;
       }
-      setFile(selectedFile);
-      setError(null);
+
       setUploadProgress(0);
     }
   };
@@ -167,7 +207,6 @@ export default function FurnitureModelImport({
             <div className="border-2 border-dashed border-slate-600 rounded-lg p-4 text-center hover:border-slate-500 transition">
               <input
                 type="file"
-                accept=".glb,.gltf,.obj,.fbx"
                 onChange={handleFileSelect}
                 disabled={isUploading}
                 className="hidden"
@@ -185,7 +224,8 @@ export default function FurnitureModelImport({
                   <div className="text-slate-400">
                     <p className="text-sm">Drop file here or click to select</p>
                     <p className="text-xs mt-1">
-                      Supported: .glb, .gltf, .obj, .fbx (max 50MB)
+                      Supported: .glb, .gltf, .obj, .fbx, .dxf, .dwg, .dwf (max
+                      50MB)
                     </p>
                   </div>
                 )}

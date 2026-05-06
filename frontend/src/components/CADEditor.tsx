@@ -51,6 +51,9 @@ const GRID_SIZE = 20; // pixels per grid square
 const MM_TO_CANVAS = 50;
 const OPENING_ATTACH_DISTANCE = 80;
 
+/** Returns the canvas stroke-width used to draw a wall (mirrors renderWall). */
+const wallStrokeWidth = (wall: Wall) => Math.max(8, wall.thickness / 50);
+
 const snapToGrid = (p: Point2D): Point2D => ({
   x: Math.round(p.x / GRID_SIZE) * GRID_SIZE,
   y: Math.round(p.y / GRID_SIZE) * GRID_SIZE,
@@ -60,6 +63,56 @@ const clamp = (v: number, min: number, max: number): number => {
   if (v < min) return min;
   if (v > max) return max;
   return v;
+};
+
+const deriveDoorPreset = (source?: string | null) => {
+  const raw = String(source || "").toLowerCase();
+  const isDouble = /double|2\s*leaf|2leaf|bi\s*fold|bifold|pair/.test(raw);
+  const isMulti =
+    /multi|triple|3\s*leaf|3leaf|quad|4\s*leaf|4leaf|sliding|fold/.test(raw);
+  const isGlass = /glass|glazed|frameless/.test(raw);
+
+  if (isMulti) {
+    return {
+      width: 2400,
+      height: 2400,
+      swingDirection: "double" as Door["swingDirection"],
+      openingSide: "inside" as Door["openingSide"],
+      material: isGlass ? "Glass" : "Wood",
+      doorStyle: "multi",
+    };
+  }
+
+  if (isDouble) {
+    return {
+      width: 1800,
+      height: 2300,
+      swingDirection: "double" as Door["swingDirection"],
+      openingSide: "inside" as Door["openingSide"],
+      material: isGlass ? "Glass" : "Wood",
+      doorStyle: "double",
+    };
+  }
+
+  if (isGlass) {
+    return {
+      width: 1200,
+      height: 2200,
+      swingDirection: "right" as Door["swingDirection"],
+      openingSide: "inside" as Door["openingSide"],
+      material: "Glass",
+      doorStyle: "glass",
+    };
+  }
+
+  return {
+    width: 900,
+    height: 2100,
+    swingDirection: "right" as Door["swingDirection"],
+    openingSide: "inside" as Door["openingSide"],
+    material: "Wood",
+    doorStyle: "single",
+  };
 };
 
 export default function CADEditor({
@@ -81,12 +134,20 @@ export default function CADEditor({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
   const [viewport, setViewport] = useState({ width: 1200, height: 700 });
+  // Ghost preview position while door/window tool is active
+  const [previewPos, setPreviewPos] = useState<Point2D | null>(null);
+  const [previewWall, setPreviewWall] = useState<Wall | undefined>(undefined);
 
   // Levels and Furniture
   const [levels, setLevels] = useState<Level[]>([]);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [furnitureItems, setFurnitureItems] = useState<FurnitureItem[]>([]);
   const [furnitureLibrary, setFurnitureLibrary] = useState<any[]>([]);
+  const [doorLibrary, setDoorLibrary] = useState<any[]>([]);
+  const [selectedDoorModelUrl, setSelectedDoorModelUrl] = useState<
+    string | null
+  >(null);
+  const [customDoorUrl, setCustomDoorUrl] = useState<string>("");
   const [selectedFurnitureType, setSelectedFurnitureType] = useState<
     string | null
   >(null);
@@ -229,6 +290,33 @@ export default function CADEditor({
   }, [projectId]);
 
   useEffect(() => {
+    const loadDoorLibrary = async () => {
+      try {
+        const res = await fetch(`/api/freecad/doors`);
+        if (res.ok) {
+          const data = await res.json();
+          const library = Array.isArray(data) ? data : [];
+          // Very permissive pre-filter: only remove obvious hardware parts
+          const filtered = library.filter((d: any) => {
+            const path = d.path.toLowerCase();
+            const name = d.name.toLowerCase();
+            // Only exclude specific non-door hardware items
+            const hardwareTerms = ["hinge", "handle", "knob", "accessories", "hardware"];
+            return !hardwareTerms.some(term => path.includes(term) || name.includes(term));
+          });
+          setDoorLibrary(filtered);
+          if (filtered.length > 0) {
+            setSelectedDoorModelUrl(filtered[0].raw_url || filtered[0].download_url);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load FreeCAD door library:", err);
+      }
+    };
+    loadDoorLibrary();
+  }, []);
+
+  useEffect(() => {
     if (!selectedLevelId && levels.length > 0) {
       setSelectedLevelId(levels[0].id);
     }
@@ -358,7 +446,13 @@ export default function CADEditor({
       const pos = getMousePos(e);
       const hostWall = findWallAt(pos);
 
-      const openingWidth = activeTool === "door" ? 900 : 1200;
+      // Openings must be wall-hosted to keep 2D and 3D placement consistent.
+      if (!hostWall) {
+        return;
+      }
+
+      const doorPreset = deriveDoorPreset(selectedDoorModelUrl);
+      const openingWidth = activeTool === "door" ? doorPreset.width : 1200;
       const { position, orientation } = constrainOpeningOnWall(
         pos,
         hostWall,
@@ -368,29 +462,35 @@ export default function CADEditor({
       const newElement: Element =
         activeTool === "door"
           ? {
-              id: `door_${Date.now()}`,
-              type: "door",
-              position,
-              width: openingWidth,
-              height: 2100,
-              swingDirection: "right",
-              wallId: hostWall?.id,
-              orientation,
-              openingSide: "inside",
-              material: "Wood",
-              fireRating: "-",
-            }
+            id: `door_${Date.now()}`,
+            type: "door",
+            position,
+            width: doorPreset.width,
+            height: doorPreset.height,
+            swingDirection: doorPreset.swingDirection,
+            wallId: hostWall?.id,
+            orientation,
+            openingSide: doorPreset.openingSide,
+            material: doorPreset.material,
+            metadata: selectedDoorModelUrl
+              ? {
+                door_model_url: selectedDoorModelUrl,
+                door_style: doorPreset.doorStyle,
+              }
+              : { door_style: doorPreset.doorStyle },
+            fireRating: "-",
+          }
           : {
-              id: `win_${Date.now()}`,
-              type: "window",
-              position,
-              width: openingWidth,
-              height: 1200,
-              wallId: hostWall?.id,
-              orientation,
-              material: "Glass",
-              glazing: "Clear",
-            };
+            id: `win_${Date.now()}`,
+            type: "window",
+            position,
+            width: openingWidth,
+            height: 1200,
+            wallId: hostWall?.id,
+            orientation,
+            material: "Glass",
+            glazing: "Clear",
+          };
 
       setElements((prev) => [...prev, newElement]);
       setIsDrawing(false);
@@ -481,6 +581,29 @@ export default function CADEditor({
     } else if (activeTool === "dimension" && isDrawing) {
       setEndPoint(pos);
     }
+    // Update ghost preview ONLY when door/window tool is active AND cursor is near a wall
+    if (activeTool === "door" || activeTool === "window") {
+      const rawPos = getMousePos(e);
+      const nearestWall = findWallAt(rawPos);
+      const doorPreset = deriveDoorPreset(selectedDoorModelUrl);
+      const openingWidth = activeTool === "door" ? doorPreset.width : 1200;
+      if (nearestWall) {
+        const { position } = constrainOpeningOnWall(
+          rawPos,
+          nearestWall,
+          openingWidth,
+        );
+        setPreviewPos(position);
+        setPreviewWall(nearestWall);
+      } else {
+        // No wall nearby — hide the ghost so it doesn't float
+        setPreviewPos(null);
+        setPreviewWall(undefined);
+      }
+    } else {
+      setPreviewPos(null);
+      setPreviewWall(undefined);
+    }
   };
 
   const handleMouseUp = () => {
@@ -496,6 +619,7 @@ export default function CADEditor({
         material: "Red Brick",
         fireRating: "-",
         color: "#d4a574",
+        metadata: {},
       };
 
       setElements((prev) => [...prev, newWall]);
@@ -613,8 +737,8 @@ export default function CADEditor({
           // Prefer current host wall to avoid jumpy re-assignment while dragging.
           let hostWall = opening.wallId
             ? (prev.find(
-                (w) => w.id === opening.wallId && w.type === "wall",
-              ) as Wall | undefined)
+              (w) => w.id === opening.wallId && w.type === "wall",
+            ) as Wall | undefined)
             : undefined;
 
           // If not attached yet, try nearest wall.
@@ -728,13 +852,18 @@ export default function CADEditor({
     );
   };
 
-  const renderDoor = (door: Door) => {
+  const renderDoor = (door: Door, isPreview = false) => {
     const hostWall = walls.find((w) => w.id === door.wallId);
-    if (!hostWall) return null;
+    if (!hostWall && !isPreview) return null;
 
-    const { dir, normal } = getWallDirection(hostWall);
+    // For preview without a host wall, use the preview wall
+    const wall = hostWall || previewWall;
+    if (!wall) return null;
+
+    const { dir, normal } = getWallDirection(wall);
     const openingWidth = door.width / MM_TO_CANVAS;
-    const openingDepth = Math.max(10, hostWall.thickness / 35);
+    // Match the wall stroke width exactly so the gap covers the wall
+    const wallSW = wallStrokeWidth(wall);
     const half = openingWidth / 2;
 
     const p1 = {
@@ -746,11 +875,17 @@ export default function CADEditor({
       y: door.position.y + dir.y * half,
     };
 
-    const hingePoint = door.swingDirection === "left" ? p1 : p2;
+    const doorStyle = ((door as any).metadata?.door_style || "").toLowerCase();
+    const isMultiStyle = doorStyle === "multi";
+    const isDoubleStyle =
+      door.swingDirection === "double" || doorStyle === "double";
+
     const insideSign = door.openingSide === "outside" ? 1 : -1;
+
+    const hingePoint = door.swingDirection === "left" ? p1 : p2;
     const arcRotation =
       (Math.atan2(normal.y * insideSign, normal.x * insideSign) * 180) /
-        Math.PI -
+      Math.PI -
       (door.swingDirection === "left" ? 90 : 0);
 
     const leafEnd = {
@@ -758,58 +893,218 @@ export default function CADEditor({
       y: hingePoint.y + normal.y * insideSign * openingWidth,
     };
 
+    const leftLeafHinge = p1;
+    const rightLeafHinge = p2;
+    const halfLeaf = openingWidth / 2;
+    const leftLeafEnd = {
+      x: leftLeafHinge.x + normal.x * insideSign * halfLeaf,
+      y: leftLeafHinge.y + normal.y * insideSign * halfLeaf,
+    };
+    const rightLeafEnd = {
+      x: rightLeafHinge.x + normal.x * insideSign * halfLeaf,
+      y: rightLeafHinge.y + normal.y * insideSign * halfLeaf,
+    };
+
+    const isSelected = selectedIds.includes(door.id);
+
     return (
-      <Group key={door.id}>
+      <Group
+        key={isPreview ? "door-preview" : door.id}
+        opacity={isPreview ? 0.55 : 1}
+        draggable={!isPreview && activeTool === "select"}
+        onClick={() => !isPreview && setSelectedIds([door.id])}
+        onDragStart={() => !isPreview && setSelectedIds([door.id])}
+        onDragMove={(e) => {
+          if (isPreview) return;
+          // e.target.position() is the drag delta in world (stage-local) space
+          const delta = e.target.position();
+          const worldPos = {
+            x: door.position.x + delta.x,
+            y: door.position.y + delta.y,
+          };
+          const { position } = constrainOpeningOnWall(
+            worldPos,
+            wall,
+            door.width,
+          );
+          e.target.position({
+            x: position.x - door.position.x,
+            y: position.y - door.position.y,
+          });
+        }}
+        onDragEnd={(e) => {
+          if (isPreview) return;
+          const delta = e.target.position();
+          updateOpeningPosition(door.id, {
+            x: door.position.x + delta.x,
+            y: door.position.y + delta.y,
+          });
+          e.target.position({ x: 0, y: 0 });
+        }}
+      >
+        {/* White gap that erases the wall line beneath the opening */}
         <Line
           points={[p1.x, p1.y, p2.x, p2.y]}
           stroke="#f8fafc"
-          strokeWidth={openingDepth + 2}
-          lineCap="round"
+          strokeWidth={wallSW + 4}
+          lineCap="butt"
         />
+        {/* Door frame outline */}
         <Line
-          points={[hingePoint.x, hingePoint.y, leafEnd.x, leafEnd.y]}
-          stroke="#7c2d12"
-          strokeWidth={2.5}
-        />
-        <Arc
-          x={hingePoint.x}
-          y={hingePoint.y}
-          innerRadius={openingWidth - 0.5}
-          outerRadius={openingWidth}
-          angle={90}
-          rotation={arcRotation}
-          stroke="#7c2d12"
+          points={[p1.x, p1.y, p2.x, p2.y]}
+          stroke={isSelected ? "#ef4444" : "#92400e"}
           strokeWidth={2}
+          lineCap="butt"
+          dash={[0]}
         />
-        <Circle
-          x={door.position.x}
-          y={door.position.y}
-          radius={Math.max(8, openingDepth / 2)}
-          fill={selectedIds.includes(door.id) ? "#ef4444" : "#8B4513"}
-          stroke="#111827"
-          strokeWidth={2}
-          draggable={activeTool === "select"}
-          dragBoundFunc={getOpeningDragBound(door, hostWall)}
-          onClick={() => setSelectedIds([door.id])}
-          onDragStart={() => setSelectedIds([door.id])}
-          onDragEnd={(e) => {
-            updateOpeningPosition(door.id, {
-              x: e.target.x(),
-              y: e.target.y(),
-            });
-          }}
-        />
+        {/* Door leaf */}
+        {!isDoubleStyle && !isMultiStyle && (
+          <>
+            <Line
+              points={[hingePoint.x, hingePoint.y, leafEnd.x, leafEnd.y]}
+              stroke="#7c2d12"
+              strokeWidth={2}
+            />
+            <Arc
+              x={hingePoint.x}
+              y={hingePoint.y}
+              innerRadius={openingWidth - 1}
+              outerRadius={openingWidth}
+              angle={90}
+              rotation={arcRotation}
+              stroke="#7c2d12"
+              strokeWidth={1.5}
+            />
+            <Circle
+              x={hingePoint.x}
+              y={hingePoint.y}
+              radius={3}
+              fill="#7c2d12"
+            />
+          </>
+        )}
+
+        {isDoubleStyle && !isMultiStyle && (
+          <>
+            <Line
+              points={[
+                leftLeafHinge.x,
+                leftLeafHinge.y,
+                leftLeafEnd.x,
+                leftLeafEnd.y,
+              ]}
+              stroke="#7c2d12"
+              strokeWidth={2}
+            />
+            <Line
+              points={[
+                rightLeafHinge.x,
+                rightLeafHinge.y,
+                rightLeafEnd.x,
+                rightLeafEnd.y,
+              ]}
+              stroke="#7c2d12"
+              strokeWidth={2}
+            />
+            <Arc
+              x={leftLeafHinge.x}
+              y={leftLeafHinge.y}
+              innerRadius={halfLeaf - 1}
+              outerRadius={halfLeaf}
+              angle={90}
+              rotation={
+                (Math.atan2(normal.y * insideSign, normal.x * insideSign) *
+                  180) /
+                Math.PI -
+                90
+              }
+              stroke="#7c2d12"
+              strokeWidth={1.2}
+            />
+            <Arc
+              x={rightLeafHinge.x}
+              y={rightLeafHinge.y}
+              innerRadius={halfLeaf - 1}
+              outerRadius={halfLeaf}
+              angle={90}
+              rotation={
+                (Math.atan2(normal.y * insideSign, normal.x * insideSign) *
+                  180) /
+                Math.PI
+              }
+              stroke="#7c2d12"
+              strokeWidth={1.2}
+            />
+          </>
+        )}
+
+        {isMultiStyle && (
+          <>
+            <Line
+              points={[
+                p1.x + dir.x * (openingWidth / 3),
+                p1.y + dir.y * (openingWidth / 3),
+                p1.x +
+                dir.x * (openingWidth / 3) +
+                normal.x * insideSign * (openingWidth / 2.8),
+                p1.y +
+                dir.y * (openingWidth / 3) +
+                normal.y * insideSign * (openingWidth / 2.8),
+              ]}
+              stroke="#7c2d12"
+              strokeWidth={2}
+            />
+            <Line
+              points={[
+                p1.x + dir.x * ((2 * openingWidth) / 3),
+                p1.y + dir.y * ((2 * openingWidth) / 3),
+                p1.x +
+                dir.x * ((2 * openingWidth) / 3) +
+                normal.x * insideSign * (openingWidth / 2.8),
+                p1.y +
+                dir.y * ((2 * openingWidth) / 3) +
+                normal.y * insideSign * (openingWidth / 2.8),
+              ]}
+              stroke="#7c2d12"
+              strokeWidth={2}
+            />
+            <Line
+              points={[
+                p1.x + dir.x * (openingWidth / 3),
+                p1.y + dir.y * (openingWidth / 3),
+                p1.x + dir.x * ((2 * openingWidth) / 3),
+                p1.y + dir.y * ((2 * openingWidth) / 3),
+              ]}
+              stroke="#7c2d12"
+              strokeWidth={1.6}
+              dash={[4, 4]}
+            />
+          </>
+        )}
+        {/* Selection highlight rect */}
+        {isSelected && !isPreview && (
+          <Line
+            points={[p1.x, p1.y, p2.x, p2.y]}
+            stroke="#ef4444"
+            strokeWidth={wallSW + 6}
+            lineCap="butt"
+            opacity={0.18}
+          />
+        )}
       </Group>
     );
   };
 
-  const renderWindow = (window_: Window) => {
+  const renderWindow = (window_: Window, isPreview = false) => {
     const hostWall = walls.find((w) => w.id === window_.wallId);
-    if (!hostWall) return null;
+    if (!hostWall && !isPreview) return null;
 
-    const { dir } = getWallDirection(hostWall);
+    const wall = hostWall || previewWall;
+    if (!wall) return null;
+
+    const { dir } = getWallDirection(wall);
     const width = window_.width / MM_TO_CANVAS;
-    const depth = Math.max(10, hostWall.thickness / 45);
+    const wallSW = wallStrokeWidth(wall);
     const half = width / 2;
 
     const p1 = {
@@ -821,38 +1116,84 @@ export default function CADEditor({
       y: window_.position.y + dir.y * half,
     };
 
+    const isSelected = selectedIds.includes(window_.id);
+
     return (
-      <Group key={window_.id}>
+      <Group
+        key={isPreview ? "window-preview" : window_.id}
+        opacity={isPreview ? 0.55 : 1}
+        draggable={!isPreview && activeTool === "select"}
+        onClick={() => !isPreview && setSelectedIds([window_.id])}
+        onDragStart={() => !isPreview && setSelectedIds([window_.id])}
+        onDragMove={(e) => {
+          if (isPreview) return;
+          const delta = e.target.position();
+          const worldPos = {
+            x: window_.position.x + delta.x,
+            y: window_.position.y + delta.y,
+          };
+          const { position } = constrainOpeningOnWall(
+            worldPos,
+            wall,
+            window_.width,
+          );
+          e.target.position({
+            x: position.x - window_.position.x,
+            y: position.y - window_.position.y,
+          });
+        }}
+        onDragEnd={(e) => {
+          if (isPreview) return;
+          const delta = e.target.position();
+          updateOpeningPosition(window_.id, {
+            x: window_.position.x + delta.x,
+            y: window_.position.y + delta.y,
+          });
+          e.target.position({ x: 0, y: 0 });
+        }}
+      >
+        {/* White gap covering full wall thickness */}
         <Line
           points={[p1.x, p1.y, p2.x, p2.y]}
-          stroke="#0ea5e9"
-          strokeWidth={depth + 4}
-          lineCap="round"
+          stroke="#f8fafc"
+          strokeWidth={wallSW + 4}
+          lineCap="butt"
         />
+        {/* Outer frame */}
         <Line
           points={[p1.x, p1.y, p2.x, p2.y]}
-          stroke="#e0f2fe"
-          strokeWidth={Math.max(4, depth - 2)}
-          lineCap="round"
+          stroke={isSelected ? "#ef4444" : "#0369a1"}
+          strokeWidth={wallSW}
+          lineCap="butt"
         />
-        <Circle
-          x={window_.position.x}
-          y={window_.position.y}
-          radius={Math.max(7, depth / 2)}
-          fill={selectedIds.includes(window_.id) ? "#ef4444" : "#0ea5e9"}
-          stroke="#082f49"
-          strokeWidth={2}
-          draggable={activeTool === "select"}
-          dragBoundFunc={getOpeningDragBound(window_, hostWall)}
-          onClick={() => setSelectedIds([window_.id])}
-          onDragStart={() => setSelectedIds([window_.id])}
-          onDragEnd={(e) => {
-            updateOpeningPosition(window_.id, {
-              x: e.target.x(),
-              y: e.target.y(),
-            });
-          }}
+        {/* Glass pane (inner lighter line) */}
+        <Line
+          points={[p1.x, p1.y, p2.x, p2.y]}
+          stroke="#bae6fd"
+          strokeWidth={Math.max(2, wallSW - 4)}
+          lineCap="butt"
         />
+        {/* Centre divider */}
+        <Line
+          points={[
+            (p1.x + p2.x) / 2,
+            (p1.y + p2.y) / 2 - 0,
+            (p1.x + p2.x) / 2,
+            (p1.y + p2.y) / 2,
+          ]}
+          stroke="#0369a1"
+          strokeWidth={1.5}
+        />
+        {/* Selection highlight */}
+        {isSelected && !isPreview && (
+          <Line
+            points={[p1.x, p1.y, p2.x, p2.y]}
+            stroke="#ef4444"
+            strokeWidth={wallSW + 6}
+            lineCap="butt"
+            opacity={0.18}
+          />
+        )}
       </Group>
     );
   };
@@ -887,16 +1228,16 @@ export default function CADEditor({
             prev.map((el) =>
               el.id === dim.id
                 ? {
-                    ...el,
-                    startPoint: {
-                      x: (el as Dimension).startPoint.x + e.target.x(),
-                      y: (el as Dimension).startPoint.y + e.target.y(),
-                    },
-                    endPoint: {
-                      x: (el as Dimension).endPoint.x + e.target.x(),
-                      y: (el as Dimension).endPoint.y + e.target.y(),
-                    },
-                  }
+                  ...el,
+                  startPoint: {
+                    x: (el as Dimension).startPoint.x + e.target.x(),
+                    y: (el as Dimension).startPoint.y + e.target.y(),
+                  },
+                  endPoint: {
+                    x: (el as Dimension).endPoint.x + e.target.x(),
+                    y: (el as Dimension).endPoint.y + e.target.y(),
+                  },
+                }
                 : el,
             ),
           );
@@ -1057,19 +1398,6 @@ export default function CADEditor({
           offsetX={0}
           rotation={item.z || 0}
         />
-
-        {/* Dimensions Label (if selected) */}
-        {selectedIds.includes(item.id) && (
-          <KonvaText
-            x={x}
-            y={y + 5}
-            text={`${(item.width || 1).toFixed(1)}m`}
-            fontSize={8}
-            fill="#ffffff"
-            align="center"
-            rotation={item.z || 0}
-          />
-        )}
       </Group>
     );
   };
@@ -1077,90 +1405,123 @@ export default function CADEditor({
   return (
     <div className="w-full h-full flex flex-col bg-slate-800">
       {/* Toolbar */}
-      <div className="bg-gray-100 border-b border-gray-300 p-4 flex items-center gap-2 overflow-x-auto">
-        <button
-          onClick={() => setActiveTool("select")}
-          className={`p-2.5 rounded ${activeTool === "select" ? "bg-blue-500 text-white" : "bg-white"}`}
-          title="Select"
-        >
-          <Move className="w-5 h-5" />
-        </button>
+      <div className="bg-slate-200 border-b-2 border-gray-400 px-4 py-2 flex items-center gap-4 overflow-x-auto shadow-md">
+        {/* Navigation Group */}
+        <div className="flex items-center gap-1 bg-white p-1 rounded-md border-2 border-gray-400 shadow-sm">
+          <button
+            onClick={() => setActiveTool("select")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "select" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Select"
+          >
+            <Move className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Select</span>
+          </button>
+          <button
+            onClick={() => setActiveTool("pan")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "pan" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Pan"
+          >
+            <Hand className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Pan</span>
+          </button>
+        </div>
 
-        <button
-          onClick={() => setActiveTool("wall")}
-          className={`p-2.5 rounded ${activeTool === "wall" ? "bg-blue-500 text-white" : "bg-white"}`}
-          title="Draw Wall"
-        >
-          <Square className="w-5 h-5" />
-        </button>
+        {/* Drawing Group */}
+        <div className="flex items-center gap-1 bg-white p-1 rounded-md border-2 border-gray-400 shadow-sm">
+          <button
+            onClick={() => setActiveTool("wall")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "wall" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Wall (W)"
+          >
+            <Square className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Wall</span>
+          </button>
+          <button
+            onClick={() => setActiveTool("door")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "door" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Door (D)"
+          >
+            <DoorIcon size={20} />
+            <span className="text-[11px] font-black uppercase tracking-wider">Door</span>
+          </button>
+          <button
+            onClick={() => setActiveTool("window")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "window" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Window (N)"
+          >
+            <Layout size={20} />
+            <span className="text-[11px] font-black uppercase tracking-wider">Window</span>
+          </button>
+          <button
+            onClick={() => setActiveTool("furniture")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "furniture" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Furniture (F)"
+          >
+            <Package2 className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Item</span>
+          </button>
+        </div>
 
-        <button
-          onClick={() => setActiveTool("door")}
-          className={`px-3 py-2 rounded hover:bg-gray-200 text-base ${activeTool === "door" ? "bg-blue-100 border-blue-500 border" : "bg-white"}`}
-          title="Place Door"
-        >
-          <DoorIcon size={20} className="text-orange-800" />
-        </button>
+        {/* Annotation Group */}
+        <div className="flex items-center gap-1 bg-white p-1 rounded-md border-2 border-gray-400 shadow-sm">
+          <button
+            onClick={() => setActiveTool("dimension")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "dimension" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Dimension (L)"
+          >
+            <Ruler className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Dim</span>
+          </button>
+          <button
+            onClick={() => setActiveTool("text")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "text" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Text (T)"
+          >
+            <Type className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-wider">Text</span>
+          </button>
+        </div>
 
-        <button
-          onClick={() => setActiveTool("window")}
-          className={`px-3 py-2 rounded hover:bg-gray-200 text-base ${activeTool === "window" ? "bg-blue-100 border-blue-500 border" : "bg-white"}`}
-          title="Place Window"
-        >
-          <Layout size={20} className="text-blue-600" />
-        </button>
-
-        <button
-          onClick={() => setActiveTool("dimension")}
-          className={`p-2.5 rounded ${activeTool === "dimension" ? "bg-blue-500 text-white" : "bg-white"}`}
-          title="Dimension Tool"
-        >
-          <Ruler className="w-5 h-5" />
-        </button>
-
-        <button
-          onClick={() => setActiveTool("text")}
-          className={`p-2.5 rounded ${activeTool === "text" ? "bg-blue-500 text-white" : "bg-white"}`}
-          title="Text Tool"
-        >
-          <Type className="w-5 h-5" />
-        </button>
-
-        <button
-          onClick={() => setActiveTool("furniture")}
-          className={`p-2.5 rounded ${activeTool === "furniture" ? "bg-blue-500 text-white" : "bg-white"}`}
-          title="Place Furniture"
-        >
-          <Package2 className="w-5 h-5" />
-        </button>
-
-        {/* Furniture Selector */}
-        {activeTool === "furniture" && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-gray-700">
-              Furniture:
-            </span>
-            <select
-              value={selectedFurnitureType || ""}
-              onChange={(e) => setSelectedFurnitureType(e.target.value || null)}
-              className="px-2 py-1 text-sm border border-gray-300 rounded bg-white"
-              disabled={isSavingFurniture}
-            >
-              <option value="">Select furniture...</option>
-              {furnitureLibrary.map((item) => (
-                <option
-                  key={`${item.asset_type}_${item.family}`}
-                  value={`${item.asset_type}_${item.family}`}
+        {/* Contextual Options Bar */}
+        {(activeTool === "door" || activeTool === "window" || activeTool === "furniture") && (
+          <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border-2 border-blue-200 rounded-md animate-in slide-in-from-left-2 duration-200 shadow-sm">
+            {activeTool === "door" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">Door Style:</span>
+                <select
+                  value={selectedDoorModelUrl || ""}
+                  onChange={(e) => setSelectedDoorModelUrl(e.target.value)}
+                  className="min-w-[140px] max-w-[220px] text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
                 >
-                  {item.asset_type} - {item.family}
-                </option>
-              ))}
-            </select>
-            {isSavingFurniture && (
-              <span className="text-xs text-blue-600">Placing...</span>
+                  <option value="">Standard BIM Door</option>
+                  {doorLibrary.map((d) => (
+                    <option key={d.path} value={d.raw_url || d.download_url}>{d.name}</option>
+                  ))}
+                </select>
+              </>
+            )}
+            
+            {activeTool === "furniture" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">Library:</span>
+                <select
+                  value={selectedFurnitureType || ""}
+                  onChange={(e) => setSelectedFurnitureType(e.target.value || null)}
+                  className="min-w-[140px] text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="">Select Furniture...</option>
+                  {furnitureLibrary.map((item) => (
+                    <option key={`${item.asset_type}_${item.family}`} value={`${item.asset_type}_${item.family}`}>
+                      {item.asset_type} - {item.family}
+                    </option>
+                  ))}
+                </select>
+              </>
             )}
           </div>
         )}
+
+
 
         {!selectedLevelId && !isLoadingLevels && levels.length > 0 && (
           <div className="text-xs text-red-600 font-medium">
@@ -1188,6 +1549,44 @@ export default function CADEditor({
         </div>
 
         {(() => {
+          const selectedWall = elements.find(
+            (element) =>
+              selectedIds.includes(element.id) && element.type === "wall",
+          ) as Wall | undefined;
+
+          if (!selectedWall) return null;
+
+          return (
+            <>
+              <div className="mx-2 h-6 w-px bg-gray-300" />
+              <div className="flex items-center gap-1 text-xs text-gray-700">
+                <span className="mr-1 font-medium">Wall:</span>
+                <button
+                  onClick={() => {
+                    const thickness = Number(
+                      prompt(
+                        "Enter wall thickness (mm):",
+                        selectedWall.thickness.toString(),
+                      ),
+                    );
+                    if (thickness && !isNaN(thickness)) {
+                      setElements((prev) =>
+                        prev.map((el) =>
+                          el.id === selectedWall.id ? { ...el, thickness } : el,
+                        ),
+                      );
+                    }
+                  }}
+                  className="px-2 py-1 bg-white border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  Thickness
+                </button>
+              </div>
+            </>
+          );
+        })()}
+
+        {(() => {
           const selectedDoor = elements.find(
             (element) =>
               selectedIds.includes(element.id) && element.type === "door",
@@ -1200,6 +1599,62 @@ export default function CADEditor({
               <div className="mx-2 h-6 w-px bg-gray-300" />
               <div className="flex items-center gap-1 text-xs text-gray-700">
                 <span className="mr-1 font-medium">Door:</span>
+                <select
+                  value={
+                    (selectedDoor as any).metadata?.door_model_url ||
+                    (selectedDoor as any).metadata?.doorModelUrl ||
+                    ""
+                  }
+                  onChange={(e) => {
+                    const url = e.target.value || null;
+                    const preset = deriveDoorPreset(url);
+                    setElements((prev) =>
+                      prev.map((el) => {
+                        if (el.id !== selectedDoor.id || el.type !== "door") {
+                          return el;
+                        }
+
+                        const currentDoor = el as Door;
+                        const hostWall = currentDoor.wallId
+                          ? (prev.find(
+                            (w) =>
+                              w.type === "wall" &&
+                              w.id === currentDoor.wallId,
+                          ) as Wall | undefined)
+                          : undefined;
+                        const constrained = constrainOpeningOnWall(
+                          currentDoor.position,
+                          hostWall,
+                          preset.width,
+                        );
+
+                        return {
+                          ...el,
+                          width: preset.width,
+                          height: preset.height,
+                          position: constrained.position,
+                          orientation: constrained.orientation,
+                          swingDirection: preset.swingDirection,
+                          openingSide: preset.openingSide,
+                          material: preset.material,
+                          metadata: {
+                            ...el.metadata,
+                            door_model_url: url,
+                            door_style: preset.doorStyle,
+                          },
+                        };
+                      }),
+                    );
+                  }}
+                  className="border rounded px-2 py-1 bg-white text-sm max-w-[120px]"
+                >
+                  <option value="">Default</option>
+                  {doorLibrary.map((d) => (
+                    <option key={d.path} value={d.raw_url || d.download_url}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
                 <button
                   onClick={() =>
                     updateSelectedDoor({
@@ -1321,7 +1776,7 @@ export default function CADEditor({
               )
               .map(renderFurniture)}
 
-            {/* Preview */}
+            {/* Wall preview while drawing */}
             {isDrawing && activeTool === "wall" && startPoint && endPoint && (
               <Group>
                 <Line
@@ -1339,6 +1794,48 @@ export default function CADEditor({
                 />
               </Group>
             )}
+
+            {/* Door ghost preview */}
+            {activeTool === "door" &&
+              previewPos &&
+              (() => {
+                const preset = deriveDoorPreset(selectedDoorModelUrl);
+                return renderDoor(
+                  {
+                    id: "__preview__",
+                    type: "door",
+                    position: previewPos,
+                    width: preset.width,
+                    height: preset.height,
+                    swingDirection: preset.swingDirection,
+                    wallId: previewWall?.id,
+                    orientation: 0,
+                    openingSide: preset.openingSide,
+                    material: preset.material,
+                    metadata: { door_style: preset.doorStyle },
+                    fireRating: "-",
+                  } as Door,
+                  true,
+                );
+              })()}
+
+            {/* Window ghost preview */}
+            {activeTool === "window" &&
+              previewPos &&
+              renderWindow(
+                {
+                  id: "__preview__",
+                  type: "window",
+                  position: previewPos,
+                  width: 1200,
+                  height: 1200,
+                  wallId: previewWall?.id,
+                  orientation: 0,
+                  material: "Glass",
+                  glazing: "Clear",
+                } as Window,
+                true,
+              )}
 
             {isDrawing &&
               activeTool === "dimension" &&

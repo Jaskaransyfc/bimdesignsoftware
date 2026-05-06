@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from starlette.concurrency import run_in_threadpool
 import shutil
+from typing import Optional
 
 router = APIRouter(prefix="/api/projects", tags=["models"])
 
@@ -19,7 +20,28 @@ MODELS_DIR = Path("storage/models")
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Allowed file extensions for 3D models
-ALLOWED_EXTENSIONS = {".glb", ".gltf", ".obj", ".fbx"}
+ALLOWED_EXTENSIONS = {
+    ".glb",
+    ".gltf",
+    ".obj",
+    ".fbx",
+    ".dxf",
+    ".dwg",
+    ".dwf",
+    ".mtl",
+    # Additional CAD/BIM formats (accepted for upload; visualization may be limited)
+    ".ifc",
+    ".rvt",
+    ".rfa",
+    ".stp",
+    ".step",
+    ".dae",
+    ".stl",
+    ".3ds",
+    ".max",
+    ".skp",
+    ".blend",
+}
 
 
 class FurnitureModelResponse(BaseModel):
@@ -32,6 +54,7 @@ class FurnitureModelResponse(BaseModel):
     file_size: int
     model_type: str  # "chair", "sofa", "table", etc.
     created_at: datetime
+    warning: Optional[str] = None  # Warning message for unsupported formats
 
 
 @router.post("/{project_id}/models/upload")
@@ -115,6 +138,17 @@ async def upload_model(
         await db.commit()
         await db.refresh(new_model)
 
+        # Generate warning message for formats that have limited visualization
+        warning = None
+        if file_ext in {".dwg", ".dwf"}:
+            warning = f"⚠️ {file_ext.upper()} files are not directly supported for visualization. Please export as .dxf, .obj, or .gltf from AutoCAD for best results."
+        elif file_ext == ".dxf":
+            warning = "⚠️ DXF files have limited visualization support. GLTF/OBJ export recommended for better results."
+        elif file_ext == ".mtl":
+            warning = "⚠️ MTL (Material) files should be uploaded together with OBJ files in the same folder. Upload the OBJ file instead."
+        elif file_ext in {".ifc", ".rvt", ".rfa", ".stp", ".step", ".dae", ".stl", ".3ds", ".max", ".skp", ".blend"}:
+            warning = f"⚠️ {file_ext.upper()} files are accepted for upload but may have limited or no direct 3D preview. Convert/export to GLTF, GLB, or OBJ for best results."
+
         # Return a plain dict with stringified datetime to avoid Pydantic
         # validation issues when returning ORM objects directly.
         return {
@@ -125,6 +159,7 @@ async def upload_model(
             "file_size": new_model.file_size,
             "model_type": new_model.model_type,
             "created_at": new_model.created_at.isoformat() if new_model.created_at else None,
+            "warning": warning,
         }
     except Exception as e:
         if file_path.exists():
