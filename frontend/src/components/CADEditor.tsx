@@ -37,6 +37,8 @@ import {
   DoorOpen as DoorIcon,
   Layout,
   Package2,
+  Menu as StairsIcon,
+  Grid as FloorIcon,
 } from "lucide-react";
 import { formatImperial } from "@/lib/calculations";
 
@@ -44,6 +46,7 @@ interface CADEditorProps {
   projectId: string;
   onSave?: (elements: Element[]) => void;
   onElementsChange?: (elements: Element[]) => void;
+  onSelectionChange?: (element: Element | null) => void;
   initialElements?: Element[];
 }
 
@@ -71,6 +74,129 @@ const deriveDoorPreset = (source?: string | null) => {
   const isMulti =
     /multi|triple|3\s*leaf|3leaf|quad|4\s*leaf|4leaf|sliding|fold/.test(raw);
   const isGlass = /glass|glazed|frameless/.test(raw);
+
+  const isLuxury = /luxury|designer|modern\s*designer/.test(raw);
+  const isClassicDouble = /classic_double|classic\s*luxury/.test(raw);
+  const isMandalaDouble = /mandala_double|mandala/.test(raw);
+  const isSlatted = /slatted|pivot|SLATTED_PIVOT_V1/.test(raw);
+
+  const isSlimBlack = /slim|black|SLIM_BLACK_GLASS_V1/.test(raw);
+  const isGeometric = /geometric|GEOMETRIC_DOUBLE_GLASS_V1/.test(raw);
+  const isLuxuryWhite = /white|gold|LUXURY_WHITE_GOLD_V1/.test(raw);
+  const isModernSliding = /modern|sliding|glass|MODERN_SLIDING_GLASS_V1/.test(raw);
+
+  if (isSlimBlack) {
+    return {
+      width: 950,
+      height: 2350,
+      swingDirection: "right" as Door["swingDirection"],
+      openingSide: "inside" as Door["openingSide"],
+      material: "Glass",
+      doorStyle: "slim_black",
+    };
+  }
+
+  if (isGeometric) {
+    return {
+      width: 2200,
+      height: 2500,
+      swingDirection: "double" as Door["swingDirection"],
+      openingSide: "inside" as Door["openingSide"],
+      material: "Glass",
+      doorStyle: "geometric_double",
+    };
+  }
+
+  if (isLuxuryWhite) {
+    return {
+      width: 2000,
+      height: 2450,
+      swingDirection: "double" as Door["swingDirection"],
+      openingSide: "inside" as Door["openingSide"],
+      material: "Glass",
+      doorStyle: "luxury_white_gold",
+    };
+  }
+
+  if (isModernSliding) {
+    return {
+      width: 4800,
+      height: 2700,
+      swingDirection: "double" as Door["swingDirection"],
+      openingSide: "inside" as Door["openingSide"],
+      material: "Glass",
+      doorStyle: "modern_sliding",
+    };
+  }
+
+  if (isClassicDouble) {
+    return {
+      width: 1800,
+      height: 2450,
+      swingDirection: "double" as Door["swingDirection"],
+      openingSide: "outside" as Door["openingSide"],
+      material: "Wood",
+      doorStyle: "classic_double",
+    };
+  }
+
+  if (isMandalaDouble) {
+    return {
+      width: 1850,
+      height: 2400,
+      swingDirection: "double" as Door["swingDirection"],
+      openingSide: "outside" as Door["openingSide"],
+      material: "Wood",
+      doorStyle: "mandala_double",
+    };
+  }
+
+  const isWoodInlay = /wood_inlay|modern\s*wood/.test(raw);
+  const isStandard = /standard|STANDARD_BIM_V1/.test(raw);
+
+  if (isSlatted) {
+    return {
+      width: 1050,
+      height: 2450,
+      swingDirection: "right" as Door["swingDirection"],
+      openingSide: "outside" as Door["openingSide"],
+      material: "Wood",
+      doorStyle: "slatted_pivot",
+    };
+  }
+
+  if (isWoodInlay) {
+    return {
+      width: 1000,
+      height: 2280,
+      swingDirection: "right" as Door["swingDirection"],
+      openingSide: "outside" as Door["openingSide"],
+      material: "Wood",
+      doorStyle: "wood_inlay",
+    };
+  }
+
+  if (isLuxury) {
+    return {
+      width: 1020,
+      height: 2380,
+      swingDirection: "right" as Door["swingDirection"],
+      openingSide: "outside" as Door["openingSide"],
+      material: "Wood",
+      doorStyle: "luxury_modern",
+    };
+  }
+
+  if (isStandard) {
+    return {
+      width: 900,
+      height: 2100,
+      swingDirection: "right" as Door["swingDirection"],
+      openingSide: "inside" as Door["openingSide"],
+      material: "Wood",
+      doorStyle: "standard",
+    };
+  }
 
   if (isMulti) {
     return {
@@ -123,6 +249,28 @@ const deriveWindowPreset = (source?: string | null) => {
   const isTall = /tall|vertical|slim|narrow/.test(raw);
   const isLarge = /large|big|full/.test(raw);
   const isGlass = /glass|glazed|frameless/.test(raw);
+  const isDoubleCasement = /casement|transom|DOUBLE_CASEMENT_TRANSOM_V1/.test(raw);
+  const isSlidingGlass = /MODERN_SLIDING_V1|modern_sliding/.test(raw);
+
+  if (isDoubleCasement) {
+    return {
+      width: 1200,
+      height: 1400,
+      windowStyle: "double_casement_transom",
+      glazing: "Clear",
+      material: "Aluminum",
+    };
+  }
+
+  if (isSlidingGlass) {
+    return {
+      width: 3000,
+      height: 2000,
+      windowStyle: "sliding",
+      glazing: "Clear",
+      material: "Glass",
+    };
+  }
 
   if (isWide && isLarge) {
     return {
@@ -163,10 +311,118 @@ const deriveWindowPreset = (source?: string | null) => {
   };
 };
 
+const deriveStairPreset = (source?: string | null) => {
+  const raw = String(source || "").toLowerCase();
+  const isFloatingSwitchback =
+    /floating_switchback|switchback|FLOATING_SWITCHBACK_V1/.test(raw);
+  const isSpiralMetal =
+    /spiral_metal|spiral|SPIRAL_METAL_V1/.test(raw);
+  const isConcreteParametric = 
+    /concrete_parametric|concrete|CONCRETE_PARAMETRIC_V1/.test(raw);
+
+  if (isConcreteParametric) {
+    return {
+      type: "concrete_parametric",
+      width: 2400,
+      height: 3000,
+      metadata: {
+        stair_style: "concrete_parametric",
+        number_of_steps: "8",
+        stair_width: "2.40",
+        tread_depth: "0.42",
+        rise_height: "0.22",
+        landing_depth: "0.65",
+        concrete_brightness: "0.62",
+        show_dark_edges: true,
+        metalness: "0.02",
+        roughness: "0.58"
+      }
+    };
+  }
+
+  if (isSpiralMetal) {
+    return {
+      type: "spiral_metal",
+      width: 2000,
+      height: 3450,
+      metadata: {
+        stair_style: "spiral_metal"
+      }
+    };
+  }
+
+  if (isFloatingSwitchback) {
+    return {
+      type: "floating_switchback",
+      width: 2050,
+      height: 2450,
+      metadata: {
+        stair_style: "floating_switchback"
+      }
+    };
+  }
+
+
+  return {
+    type: "standard",
+    width: 1000,
+    height: 3000,
+  };
+};
+
+const deriveFloorPreset = (source?: string | null) => {
+  const raw = String(source || "").toLowerCase();
+  const isMarble = /marble|vitrified|MARBLE_VITRIFIED_V1/.test(raw);
+  const isConcrete = /concrete|CONCRETE_TILE_V1/.test(raw);
+  const isDecorative = /decorative|medallion|DECORATIVE_MEDALLION_V1/.test(raw);
+  const isLuxury = /luxury|stone|LUXURY_STONE_V1/.test(raw);
+  const isChecker = /checker|ceramic|CHECKER_CERAMIC_V1/.test(raw);
+
+  if (isMarble) {
+    return { type: "marble_vitrified", width: 3000, depth: 3000, material: "Marble Vitrified", color: "#f8fafc" };
+  }
+  if (isConcrete) {
+    return { type: "concrete_tile", width: 4000, depth: 4000, material: "Concrete Tile", color: "#94a3b8" };
+  }
+  if (isDecorative) {
+    return { type: "decorative_medallion", width: 3000, depth: 3000, material: "Decorative Medallion", color: "#fef3c7" };
+  }
+  if (isLuxury) {
+    return { type: "luxury_stone", width: 3500, depth: 3500, material: "Luxury Stone", color: "#e2e8f0" };
+  }
+  if (isChecker) {
+    return { type: "checker_ceramic", width: 2500, depth: 2500, material: "Checker Ceramic", color: "#f1f5f9" };
+  }
+
+  return {
+    type: "marble_vitrified",
+    width: 3000,
+    depth: 3000,
+    material: "Marble Vitrified",
+    color: "#f8fafc"
+  };
+};
+
+const deriveWallPreset = (materialName?: string | null) => {
+  const raw = String(materialName || "").toLowerCase();
+  if (raw.includes("glass")) return { material: "Glass", color: "#a5f3fc" };
+  if (raw.includes("brick")) return { material: "Red Brick", color: "#d4a574" };
+  if (raw.includes("cmu") || raw.includes("block"))
+    return { material: "CMU Block", color: "#95a5a6" };
+  if (raw.includes("slat"))
+    return { material: "Wooden Slat", color: "#8B4513" };
+  if (raw.includes("steel") || raw.includes("metal"))
+    return { material: "Steel", color: "#b8c4cf" };
+  if (raw.includes("wood")) return { material: "Wood Frame", color: "#8B4513" };
+  return { material: "Standard", color: "#ffffff" };
+};
+
+
 export default function CADEditor({
   projectId,
   onSave,
   onElementsChange,
+  onSelectionChange,
   initialElements = [],
 }: CADEditorProps) {
   const canvasWrapRef = useRef<HTMLDivElement>(null);
@@ -193,12 +449,21 @@ export default function CADEditor({
   const [furnitureLibrary, setFurnitureLibrary] = useState<any[]>([]);
   const [doorLibrary, setDoorLibrary] = useState<any[]>([]);
   const [windowLibrary, setWindowLibrary] = useState<any[]>([]);
+  const [stairLibrary, setStairLibrary] = useState<any[]>([]);
+  const [floorLibrary, setFloorLibrary] = useState<any[]>([]);
   const [selectedDoorModelUrl, setSelectedDoorModelUrl] = useState<
     string | null
   >(null);
   const [selectedWindowModelUrl, setSelectedWindowModelUrl] = useState<
     string | null
   >(null);
+  const [selectedStairModelUrl, setSelectedStairModelUrl] = useState<
+    string | null
+  >(null);
+  const [selectedFloorModelUrl, setSelectedFloorModelUrl] = useState<
+    string | null
+  >(null);
+  const [selectedWallMaterial, setSelectedWallMaterial] = useState<string>("Standard");
   const [customDoorUrl, setCustomDoorUrl] = useState<string>("");
   const [selectedFurnitureType, setSelectedFurnitureType] = useState<
     string | null
@@ -226,6 +491,18 @@ export default function CADEditor({
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // Notify parent of selection changes
+  useEffect(() => {
+    if (!onSelectionChange) return;
+    const selectedId = selectedIds[0];
+    if (!selectedId) {
+      onSelectionChange(null);
+      return;
+    }
+    const el = elements.find((e) => e.id === selectedId) ?? null;
+    onSelectionChange(el);
+  }, [selectedIds, elements, onSelectionChange]);
 
   useEffect(() => {
     const updateViewport = () => {
@@ -348,27 +625,9 @@ export default function CADEditor({
         if (res.ok) {
           const data = await res.json();
           const library = Array.isArray(data) ? data : [];
-          // Very permissive pre-filter: only remove obvious hardware parts
-          const filtered = library.filter((d: any) => {
-            const path = d.path.toLowerCase();
-            const name = d.name.toLowerCase();
-            // Only exclude specific non-door hardware items
-            const hardwareTerms = [
-              "hinge",
-              "handle",
-              "knob",
-              "accessories",
-              "hardware",
-            ];
-            return !hardwareTerms.some(
-              (term) => path.includes(term) || name.includes(term),
-            );
-          });
-          setDoorLibrary(filtered);
-          if (filtered.length > 0) {
-            setSelectedDoorModelUrl(
-              filtered[0].raw_url || filtered[0].download_url,
-            );
+          setDoorLibrary(library);
+          if (library.length > 0) {
+            setSelectedDoorModelUrl(library[0].raw_url || library[0].download_url);
           }
         }
       } catch (err) {
@@ -401,17 +660,60 @@ export default function CADEditor({
   }, []);
 
   useEffect(() => {
+    const loadStairLibrary = async () => {
+      try {
+        const res = await fetch(`/api/freecad/stairs`);
+        if (res.ok) {
+          const data = await res.json();
+          const library = Array.isArray(data) ? data : [];
+          setStairLibrary(library);
+          if (library.length > 0) {
+            setSelectedStairModelUrl(
+              library[0].raw_url || library[0].download_url,
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load FreeCAD stair library:", err);
+      }
+    };
+    loadStairLibrary();
+  }, []);
+
+  useEffect(() => {
+    const loadFloorLibrary = async () => {
+      try {
+        const res = await fetch(`/api/freecad/floors`);
+        if (res.ok) {
+          const data = await res.json();
+          const library = Array.isArray(data) ? data : [];
+          setFloorLibrary(library);
+          if (library.length > 0) {
+            setSelectedFloorModelUrl(
+              library[0].raw_url || library[0].download_url,
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load FreeCAD floor library:", err);
+      }
+    };
+    loadFloorLibrary();
+  }, []);
+
+  useEffect(() => {
     if (!selectedLevelId && levels.length > 0) {
       setSelectedLevelId(levels[0].id);
     }
   }, [levels, selectedLevelId]);
 
   useEffect(() => {
-    // Avoid parent-child feedback loops: only hydrate from props when local editor is empty.
-    if (elements.length === 0 && initialElements.length > 0) {
+    // Sync local state with parent state when props change.
+    // This allows the Property Panel in page.tsx to drive updates to the 2D view.
+    if (initialElements !== elements) {
       setElements(initialElements);
     }
-  }, [initialElements, elements.length]);
+  }, [initialElements]);
 
   useEffect(() => {
     onElementsChange?.(elements);
@@ -548,41 +850,41 @@ export default function CADEditor({
       const newElement: Element =
         activeTool === "door"
           ? {
-              id: `door_${Date.now()}`,
-              type: "door",
-              position,
-              width: doorPreset.width,
-              height: doorPreset.height,
-              swingDirection: doorPreset.swingDirection,
-              wallId: hostWall?.id,
-              orientation,
-              openingSide: doorPreset.openingSide,
-              material: doorPreset.material,
-              metadata: selectedDoorModelUrl
-                ? {
-                    door_model_url: selectedDoorModelUrl,
-                    door_style: doorPreset.doorStyle,
-                  }
-                : { door_style: doorPreset.doorStyle },
-              fireRating: "-",
-            }
+            id: `door_${Date.now()}`,
+            type: "door",
+            position,
+            width: doorPreset.width,
+            height: doorPreset.height,
+            swingDirection: doorPreset.swingDirection,
+            wallId: hostWall?.id,
+            orientation,
+            openingSide: doorPreset.openingSide,
+            material: doorPreset.material,
+            metadata: selectedDoorModelUrl
+              ? {
+                door_model_url: selectedDoorModelUrl,
+                door_style: doorPreset.doorStyle,
+              }
+              : { door_style: doorPreset.doorStyle },
+            fireRating: "-",
+          }
           : {
-              id: `win_${Date.now()}`,
-              type: "window",
-              position,
-              width: openingWidth,
-              height: windowPreset.height,
-              wallId: hostWall?.id,
-              orientation,
-              material: windowPreset.material,
-              glazing: windowPreset.glazing,
-              metadata: selectedWindowModelUrl
-                ? {
-                    window_model_url: selectedWindowModelUrl,
-                    window_style: windowPreset.windowStyle,
-                  }
-                : { window_style: windowPreset.windowStyle },
-            };
+            id: `win_${Date.now()}`,
+            type: "window",
+            position,
+            width: openingWidth,
+            height: windowPreset.height,
+            wallId: hostWall?.id,
+            orientation,
+            material: windowPreset.material,
+            glazing: windowPreset.glazing,
+            metadata: selectedWindowModelUrl
+              ? {
+                window_model_url: selectedWindowModelUrl,
+                window_style: windowPreset.windowStyle,
+              }
+              : { window_style: windowPreset.windowStyle },
+          };
 
       setElements((prev) => [...prev, newElement]);
       setIsDrawing(false);
@@ -606,6 +908,38 @@ export default function CADEditor({
         };
         setElements((prev) => [...prev, newText]);
       }
+    } else if (activeTool === "stairs" && previewPos) {
+      const preset = deriveStairPreset(selectedStairModelUrl);
+      const newStair: Stair = {
+        id: `stair-${Date.now()}`,
+        type: "stairs",
+        position: previewPos,
+        width: 2050, // default or from preset
+        height: 2450,
+        rotation: 0,
+        metadata: {
+          stair_style: preset.type,
+          stair_model_url: selectedStairModelUrl,
+        },
+      };
+      setElements((prev) => [...prev, newStair]);
+      setIsDrawing(false);
+    } else if (activeTool === "floor" && previewPos) {
+      const preset = deriveFloorPreset(selectedFloorModelUrl);
+      const newFloor: Floor = {
+        id: `floor-${Date.now()}`,
+        type: "floor",
+        position: previewPos,
+        width: preset.width,
+        depth: preset.depth,
+        rotation: 0,
+        metadata: {
+          floor_style: preset.type,
+          floor_model_url: selectedFloorModelUrl,
+        },
+      };
+      setElements((prev) => [...prev, newFloor]);
+      setIsDrawing(false);
     } else if (activeTool === "furniture" && selectedFurnitureType) {
       // Find selected furniture from library
       const selectedFurniture = furnitureLibrary.find(
@@ -692,6 +1026,10 @@ export default function CADEditor({
         setPreviewPos(null);
         setPreviewWall(undefined);
       }
+    } else if (activeTool === "stairs" || activeTool === "floor") {
+      const rawPos = snapToGrid(getMousePos(e));
+      setPreviewPos(rawPos);
+      setPreviewWall(undefined);
     } else {
       setPreviewPos(null);
       setPreviewWall(undefined);
@@ -701,6 +1039,7 @@ export default function CADEditor({
   const handleMouseUp = () => {
     if (activeTool === "wall" && isDrawing && startPoint && endPoint) {
       // Create wall
+      const wallPreset = deriveWallPreset(selectedWallMaterial);
       const newWall: Wall = {
         id: `wall_${Date.now()}`,
         type: "wall",
@@ -708,13 +1047,14 @@ export default function CADEditor({
         endPoint,
         thickness: 230,
         height: 3000,
-        material: "Red Brick",
+        material: wallPreset.material,
         fireRating: "-",
-        color: "#d4a574",
+        color: wallPreset.color,
         metadata: {},
       };
 
       setElements((prev) => [...prev, newWall]);
+      setSelectedIds([newWall.id]);
       setStartPoint(null);
       setEndPoint(null);
       setIsDrawing(false);
@@ -829,8 +1169,8 @@ export default function CADEditor({
           // Prefer current host wall to avoid jumpy re-assignment while dragging.
           let hostWall = opening.wallId
             ? (prev.find(
-                (w) => w.id === opening.wallId && w.type === "wall",
-              ) as Wall | undefined)
+              (w) => w.id === opening.wallId && w.type === "wall",
+            ) as Wall | undefined)
             : undefined;
 
           // If not attached yet, try nearest wall.
@@ -898,6 +1238,10 @@ export default function CADEditor({
         return renderDimension(element as Dimension);
       case "text":
         return renderText(element as TextElement);
+      case "stairs":
+        return renderStairs(element);
+      case "floor":
+        return renderFloor(element as Floor);
       default:
         return null;
     }
@@ -977,7 +1321,7 @@ export default function CADEditor({
     const hingePoint = door.swingDirection === "left" ? p1 : p2;
     const arcRotation =
       (Math.atan2(normal.y * insideSign, normal.x * insideSign) * 180) /
-        Math.PI -
+      Math.PI -
       (door.swingDirection === "left" ? 90 : 0);
 
     const leafEnd = {
@@ -1107,7 +1451,7 @@ export default function CADEditor({
               rotation={
                 (Math.atan2(normal.y * insideSign, normal.x * insideSign) *
                   180) /
-                  Math.PI -
+                Math.PI -
                 90
               }
               stroke="#7c2d12"
@@ -1137,11 +1481,11 @@ export default function CADEditor({
                 p1.x + dir.x * (openingWidth / 3),
                 p1.y + dir.y * (openingWidth / 3),
                 p1.x +
-                  dir.x * (openingWidth / 3) +
-                  normal.x * insideSign * (openingWidth / 2.8),
+                dir.x * (openingWidth / 3) +
+                normal.x * insideSign * (openingWidth / 2.8),
                 p1.y +
-                  dir.y * (openingWidth / 3) +
-                  normal.y * insideSign * (openingWidth / 2.8),
+                dir.y * (openingWidth / 3) +
+                normal.y * insideSign * (openingWidth / 2.8),
               ]}
               stroke="#7c2d12"
               strokeWidth={2}
@@ -1151,11 +1495,11 @@ export default function CADEditor({
                 p1.x + dir.x * ((2 * openingWidth) / 3),
                 p1.y + dir.y * ((2 * openingWidth) / 3),
                 p1.x +
-                  dir.x * ((2 * openingWidth) / 3) +
-                  normal.x * insideSign * (openingWidth / 2.8),
+                dir.x * ((2 * openingWidth) / 3) +
+                normal.x * insideSign * (openingWidth / 2.8),
                 p1.y +
-                  dir.y * ((2 * openingWidth) / 3) +
-                  normal.y * insideSign * (openingWidth / 2.8),
+                dir.y * ((2 * openingWidth) / 3) +
+                normal.y * insideSign * (openingWidth / 2.8),
               ]}
               stroke="#7c2d12"
               strokeWidth={2}
@@ -1320,16 +1664,16 @@ export default function CADEditor({
             prev.map((el) =>
               el.id === dim.id
                 ? {
-                    ...el,
-                    startPoint: {
-                      x: (el as Dimension).startPoint.x + e.target.x(),
-                      y: (el as Dimension).startPoint.y + e.target.y(),
-                    },
-                    endPoint: {
-                      x: (el as Dimension).endPoint.x + e.target.x(),
-                      y: (el as Dimension).endPoint.y + e.target.y(),
-                    },
-                  }
+                  ...el,
+                  startPoint: {
+                    x: (el as Dimension).startPoint.x + e.target.x(),
+                    y: (el as Dimension).startPoint.y + e.target.y(),
+                  },
+                  endPoint: {
+                    x: (el as Dimension).endPoint.x + e.target.x(),
+                    y: (el as Dimension).endPoint.y + e.target.y(),
+                  },
+                }
                 : el,
             ),
           );
@@ -1403,6 +1747,253 @@ export default function CADEditor({
           );
         }}
       />
+    );
+  };
+
+  const renderFloor = (floor: Floor, isPreview = false) => {
+    const isSelected = selectedIds.includes(floor.id);
+    const w = floor.width / MM_TO_CANVAS;
+    const d = floor.depth / MM_TO_CANVAS;
+
+    return (
+      <Group
+        key={isPreview ? "floor-preview" : floor.id}
+        x={floor.position.x}
+        y={floor.position.y}
+        opacity={isPreview ? 0.55 : 1}
+        draggable={!isPreview && activeTool === "select"}
+        onClick={() => !isPreview && setSelectedIds([floor.id])}
+        onDragStart={() => !isPreview && setSelectedIds([floor.id])}
+        onDragEnd={(e) => {
+          if (isPreview) return;
+          const newPos = { x: e.target.x(), y: e.target.y() };
+          setElements((prev) =>
+            prev.map((el) =>
+              el.id === floor.id ? { ...el, position: newPos } : el,
+            ),
+          );
+        }}
+      >
+        <Rect
+          x={-w / 2}
+          y={-d / 2}
+          width={w}
+          height={d}
+          fill={isSelected ? "#bfdbfe" : "#f1f5f9"}
+          stroke={isSelected ? "#3b82f6" : "#cbd5e1"}
+          strokeWidth={1}
+        />
+        {/* Simple Tile Grid Pattern in 2D */}
+        {[...Array(Math.floor(w / 12))].map((_, i) => (
+          <Line
+            key={`v-${i}`}
+            points={[-w / 2 + (i + 1) * 12, -d / 2, -w / 2 + (i + 1) * 12, d / 2]}
+            stroke="#e2e8f0"
+            strokeWidth={0.5}
+          />
+        ))}
+        {[...Array(Math.floor(d / 12))].map((_, i) => (
+
+          <Line
+            key={`h-${i}`}
+            points={[-w / 2, -d / 2 + (i + 1) * 12, w / 2, -d / 2 + (i + 1) * 12]}
+            stroke="#e2e8f0"
+            strokeWidth={0.5}
+          />
+        ))}
+
+      </Group>
+    );
+  };
+
+  const renderStairs = (stair: any, isPreview = false) => {
+    const isSelected = selectedIds.includes(stair.id);
+    const style = (stair as any).metadata?.stair_style || (stair as any).metadata?.stairStyle || "standard";
+
+    // Straight Parametric Style (Concrete)
+    if (style === "concrete_parametric") {
+      const steps = parseInt(stair.metadata?.number_of_steps || "8");
+      const width = (stair.width || 2400) / 50;
+      const tread = (parseFloat(stair.metadata?.tread_depth || "0.42") * 1000) / 50;
+      const landing = (parseFloat(stair.metadata?.landing_depth || "0.65") * 1000) / 50;
+      const totalL = steps * tread + landing;
+
+      return (
+        <Group
+          key={isPreview ? "stair-preview" : stair.id}
+          x={stair.position.x}
+          y={stair.position.y}
+          rotation={stair.rotation || 0}
+          opacity={isPreview ? 0.55 : 1}
+          draggable={!isPreview && activeTool === "select"}
+          onClick={() => !isPreview && setSelectedIds([stair.id])}
+          onDragStart={() => !isPreview && setSelectedIds([stair.id])}
+          onDragEnd={(e) => {
+            if (isPreview) return;
+            const newPos = { x: e.target.x(), y: e.target.y() };
+            setElements((prev) =>
+              prev.map((el) => (el.id === stair.id ? { ...el, position: newPos } : el)),
+            );
+          }}
+        >
+          {/* Main Footprint */}
+          <Rect
+            x={0}
+            y={-width / 2}
+            width={totalL}
+            height={width}
+            fill="#f8fafc"
+            stroke={isSelected ? "#ef4444" : "#64748b"}
+            strokeWidth={isSelected ? 2 : 1}
+          />
+          {/* Step Lines */}
+          {[...Array(steps + 1)].map((_, i) => (
+            <Line
+              key={`step-${i}`}
+              points={[i * tread, -width / 2, i * tread, width / 2]}
+              stroke="#cbd5e1"
+              strokeWidth={1}
+            />
+          ))}
+          {/* Path Arrow */}
+          <Line
+            points={[tread / 2, 0, totalL - 5, 0]}
+            stroke="#b45309"
+            strokeWidth={1.5}
+          />
+          <Line
+            points={[totalL - 10, -5, totalL - 5, 0, totalL - 10, 5]}
+            stroke="#b45309"
+            strokeWidth={1.5}
+          />
+          <KonvaText
+            x={10}
+            y={-12}
+            text="UP"
+            fontSize={8}
+            fill="#b45309"
+            fontStyle="bold"
+          />
+        </Group>
+      );
+    }
+
+    // Default Switchback Style
+    const run = 6;
+    const treadWidth = 20;
+    const flightGap = 2;
+    const landingWidth = 24;
+    const steps = 9;
+
+    const flightLen = steps * run;
+    const totalW = flightLen + landingWidth;
+    const totalD = treadWidth * 2 + flightGap;
+
+    return (
+      <Group
+        key={isPreview ? "stair-preview" : stair.id}
+        x={stair.position.x}
+        y={stair.position.y}
+        rotation={stair.rotation || 0}
+        opacity={isPreview ? 0.55 : 1}
+        draggable={!isPreview && activeTool === "select"}
+        onClick={() => !isPreview && setSelectedIds([stair.id])}
+        onDragStart={() => !isPreview && setSelectedIds([stair.id])}
+        onDragEnd={(e) => {
+          if (isPreview) return;
+          const newPos = { x: e.target.x(), y: e.target.y() };
+          setElements((prev) =>
+            prev.map((el) => (el.id === stair.id ? { ...el, position: newPos } : el)),
+          );
+        }}
+      >
+        {/* Main Footprint */}
+        <Rect
+          x={0}
+          y={-totalD / 2}
+          width={totalW}
+          height={totalD}
+          fill="#f8fafc"
+          stroke={isSelected ? "#ef4444" : "#64748b"}
+          strokeWidth={isSelected ? 2 : 1}
+        />
+
+        {/* Lower Flight Steps */}
+        {[...Array(steps + 1)].map((_, i) => (
+          <Line
+            key={`lower-${i}`}
+            points={[
+              i * run, -totalD / 2,
+              i * run, -totalD / 2 + treadWidth
+            ]}
+            stroke="#94a3b8"
+            strokeWidth={1}
+          />
+        ))}
+
+        {/* Upper Flight Steps */}
+        {[...Array(steps + 1)].map((_, i) => (
+          <Line
+            key={`upper-${i}`}
+            points={[
+              i * run, totalD / 2,
+              i * run, totalD / 2 - treadWidth
+            ]}
+            stroke="#94a3b8"
+            strokeWidth={1}
+          />
+        ))}
+
+        {/* Landing Split Line */}
+        <Line
+          points={[flightLen, -totalD / 2, flightLen, totalD / 2]}
+          stroke="#94a3b8"
+          strokeWidth={1}
+        />
+
+        {/* Path Arrow */}
+        <Line
+          points={[
+            run / 2, -totalD / 4,
+            flightLen + landingWidth / 2, -totalD / 4,
+            flightLen + landingWidth / 2, totalD / 4,
+            run / 2, totalD / 4
+          ]}
+          stroke="#b45309"
+          strokeWidth={1.5}
+          lineCap="round"
+          lineJoin="round"
+        />
+        <Line
+          points={[
+            run, totalD / 4 - 4,
+            run / 2, totalD / 4,
+            run, totalD / 4 + 4
+          ]}
+          stroke="#b45309"
+          strokeWidth={1.5}
+        />
+
+        <KonvaText
+          x={5}
+          y={-totalD / 4 - 12}
+          text="UP"
+          fontSize={8}
+          fill="#b45309"
+          fontStyle="bold"
+        />
+
+        {/* Dimensions Hint */}
+        {isSelected && (
+          <KonvaText
+            x={0}
+            y={totalD / 2 + 5}
+            text={`${steps + steps} Steps | 1.0m Width`}
+            fontSize={10}
+            fill="#64748b"
+          />
+        )}
+      </Group>
     );
   };
 
@@ -1555,6 +2146,26 @@ export default function CADEditor({
             </span>
           </button>
           <button
+            onClick={() => setActiveTool("stairs")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "stairs" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Stairs (S)"
+          >
+            <StairsIcon size={20} />
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Stairs
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTool("floor")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "floor" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Floor (F)"
+          >
+            <FloorIcon size={20} />
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Floor
+            </span>
+          </button>
+          <button
             onClick={() => setActiveTool("furniture")}
             className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "furniture" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
             title="Furniture (F)"
@@ -1591,78 +2202,158 @@ export default function CADEditor({
         </div>
 
         {/* Contextual Options Bar */}
-        {(activeTool === "door" ||
+        {(activeTool === "wall" ||
+          activeTool === "door" ||
           activeTool === "window" ||
+          activeTool === "stairs" ||
+          activeTool === "floor" ||
           activeTool === "furniture") && (
-          <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border-2 border-blue-200 rounded-md animate-in slide-in-from-left-2 duration-200 shadow-sm">
-            {activeTool === "door" && (
-              <>
-                <span className="text-[10px] uppercase font-black text-blue-500">
-                  Door Style:
-                </span>
-                <select
-                  value={selectedDoorModelUrl || ""}
-                  onChange={(e) => setSelectedDoorModelUrl(e.target.value)}
-                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                >
-                  <option value="">Standard BIM Door</option>
-                  {doorLibrary.map((d) => (
-                    <option key={d.path} value={d.raw_url || d.download_url}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
+            <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border-2 border-blue-200 rounded-md animate-in slide-in-from-left-2 duration-200 shadow-sm">
+              {activeTool === "wall" && (
+                <>
+                  <span className="text-[10px] uppercase font-black text-blue-500">
+                    Wall Style:
+                  </span>
+                  <select
+                    value={selectedWallMaterial}
+                    onChange={(e) => setSelectedWallMaterial(e.target.value)}
+                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                  >
+                    <option value="Standard">Standard Wall</option>
+                    <option value="Red Brick">Red Brick Wall</option>
+                    <option value="CMU Block">CMU Block Wall</option>
+                    <option value="Glass">Glass Partition</option>
+                    <option value="Wooden Slat">Wooden Slat Wall</option>
+                    <option value="Steel">Steel Panel</option>
+                    <option value="Wood Frame">Wood Frame</option>
+                  </select>
+                </>
+              )}
+              {activeTool === "door" && (
+                <>
+                  <span className="text-[10px] uppercase font-black text-blue-500">
+                    Door Style:
+                  </span>
+                  <select
+                    value={selectedDoorModelUrl || ""}
+                    onChange={(e) => setSelectedDoorModelUrl(e.target.value)}
+                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                  >
+                    <option value="">Standard BIM Door</option>
+                    <option value="LUXURY_MODERN_V1">Luxury Modern Door</option>
+                    <option value="MODERN_WOOD_INLAY_V1">Modern Wood Inlay</option>
+                    <option value="SLATTED_PIVOT_V1">Slatted Pivot Door</option>
+                    <option value="CLASSIC_DOUBLE_V1">Classic Double Door</option>
+                    <option value="MANDALA_DOUBLE_V1">Mandala Double Door</option>
+                    <option value="SLIM_BLACK_GLASS_V1">Slim Black Glass</option>
+                    <option value="GEOMETRIC_DOUBLE_GLASS_V1">Geometric Double Glass</option>
+                    <option value="LUXURY_WHITE_GOLD_V1">Luxury White & Gold</option>
+                    <option value="MODERN_SLIDING_GLASS_V1">Modern Sliding Glass</option>
+                    {doorLibrary.map((d) => (
+                      <option key={d.path} value={d.raw_url || d.download_url}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
 
-            {activeTool === "window" && (
-              <>
-                <span className="text-[10px] uppercase font-black text-blue-500">
-                  Window Style:
-                </span>
-                <select
-                  value={selectedWindowModelUrl || ""}
-                  onChange={(e) =>
-                    setSelectedWindowModelUrl(e.target.value || null)
-                  }
-                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                >
-                  <option value="">Standard BIM Window</option>
-                  {windowLibrary.map((w) => (
-                    <option key={w.path} value={w.raw_url || w.download_url}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
+              {activeTool === "window" && (
+                <>
+                  <span className="text-[10px] uppercase font-black text-blue-500">
+                    Window Style:
+                  </span>
+                  <select
+                    value={selectedWindowModelUrl || ""}
+                    onChange={(e) =>
+                      setSelectedWindowModelUrl(e.target.value || null)
+                    }
+                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                  >
+                    <option value="">Standard BIM Window</option>
+                    {windowLibrary.map((w) => (
+                      <option key={w.path} value={w.raw_url || w.download_url}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
 
-            {activeTool === "furniture" && (
-              <>
-                <span className="text-[10px] uppercase font-black text-blue-500">
-                  Library:
-                </span>
-                <select
-                  value={selectedFurnitureType || ""}
-                  onChange={(e) =>
-                    setSelectedFurnitureType(e.target.value || null)
-                  }
-                  className="min-w-35 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                >
-                  <option value="">Select Furniture...</option>
-                  {furnitureLibrary.map((item) => (
-                    <option
-                      key={`${item.asset_type}_${item.family}`}
-                      value={`${item.asset_type}_${item.family}`}
-                    >
-                      {item.asset_type} - {item.family}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-          </div>
-        )}
+              {activeTool === "stairs" && (
+                <>
+                  <span className="text-[10px] uppercase font-black text-blue-500">
+                    Stair Style:
+                  </span>
+                  <select
+                    value={selectedStairModelUrl || ""}
+                    onChange={(e) => setSelectedStairModelUrl(e.target.value)}
+                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                  >
+                    <option value="">Standard Stairs</option>
+                    <option value="FLOATING_SWITCHBACK_V1">Floating Switchback</option>
+                    <option value="SPIRAL_METAL_V1">Spiral Metal</option>
+                    <option value="CONCRETE_PARAMETRIC_V1">Concrete Parametric</option>
+
+                    {stairLibrary.map((s) => (
+                      <option key={s.path} value={s.raw_url || s.download_url}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {activeTool === "floor" && (
+                <>
+                  <span className="text-[10px] uppercase font-black text-blue-500">
+                    Floor Style:
+                  </span>
+                  <select
+                    value={selectedFloorModelUrl || ""}
+                    onChange={(e) => setSelectedFloorModelUrl(e.target.value)}
+                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                  >
+                    <option value="MARBLE_VITRIFIED_V1">Marble Vitrified</option>
+                    <option value="CONCRETE_TILE_V1">Concrete Tile</option>
+                    <option value="DECORATIVE_MEDALLION_V1">Decorative Medallion</option>
+                    <option value="LUXURY_STONE_V1">Luxury Stone</option>
+                    <option value="CHECKER_CERAMIC_V1">Checker Ceramic</option>
+                    {floorLibrary.map((f) => (
+                      <option key={f.path} value={f.raw_url || f.download_url}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {activeTool === "furniture" && (
+                <>
+                  <span className="text-[10px] uppercase font-black text-blue-500">
+                    Library:
+                  </span>
+                  <select
+                    value={selectedFurnitureType || ""}
+                    onChange={(e) =>
+                      setSelectedFurnitureType(e.target.value || null)
+                    }
+                    className="min-w-35 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                  >
+                    <option value="">Select Furniture...</option>
+                    {furnitureLibrary.map((item) => (
+                      <option
+                        key={`${item.asset_type}_${item.family}`}
+                        value={`${item.asset_type}_${item.family}`}
+                      >
+                        {item.asset_type} - {item.family}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+          )}
 
         {!selectedLevelId && !isLoadingLevels && levels.length > 0 && (
           <div className="text-xs text-red-600 font-medium">
@@ -1722,6 +2413,48 @@ export default function CADEditor({
                 >
                   Thickness
                 </button>
+                <div className="mx-1 h-4 w-px bg-gray-300" />
+                <div className="flex items-center gap-1 bg-white border border-gray-300 rounded px-1.5 py-0.5">
+                  <span className="text-[10px] text-gray-400 font-bold uppercase">Color</span>
+                  <input
+                    type="color"
+                    value={selectedWall.color || "#ffffff"}
+                    onChange={(e) => {
+                      setElements((prev) =>
+                        prev.map((el) =>
+                          el.id === selectedWall.id
+                            ? { ...el, color: e.target.value }
+                            : el,
+                        ),
+                      );
+                    }}
+                    className="w-5 h-5 border-none cursor-pointer bg-transparent p-0"
+                    title="Change Wall Color"
+                  />
+                </div>
+                <div className="mx-1 h-4 w-px bg-gray-300" />
+                <select
+                  value={selectedWall.material}
+                  onChange={(e) => {
+                    const preset = deriveWallPreset(e.target.value);
+                    setElements((prev) =>
+                      prev.map((el) =>
+                        el.id === selectedWall.id
+                          ? { ...el, material: preset.material, color: preset.color }
+                          : el,
+                      ),
+                    );
+                  }}
+                  className="border rounded px-2 py-1 bg-white text-xs"
+                >
+                  <option value="Standard">Standard</option>
+                  <option value="Red Brick">Brick</option>
+                  <option value="CMU Block">CMU Block</option>
+                  <option value="Glass">Glass</option>
+                  <option value="Wooden Slat">Wooden Slat</option>
+                  <option value="Steel">Steel</option>
+                  <option value="Wood Frame">Wood Frame</option>
+                </select>
               </div>
             </>
           );
@@ -1758,10 +2491,10 @@ export default function CADEditor({
                         const currentDoor = el as Door;
                         const hostWall = currentDoor.wallId
                           ? (prev.find(
-                              (w) =>
-                                w.type === "wall" &&
-                                w.id === currentDoor.wallId,
-                            ) as Wall | undefined)
+                            (w) =>
+                              w.type === "wall" &&
+                              w.id === currentDoor.wallId,
+                          ) as Wall | undefined)
                           : undefined;
                         const constrained = constrainOpeningOnWall(
                           currentDoor.position,
@@ -1867,10 +2600,10 @@ export default function CADEditor({
                         const currentWindow = el as Window;
                         const hostWall = currentWindow.wallId
                           ? (prev.find(
-                              (w) =>
-                                w.type === "wall" &&
-                                w.id === currentWindow.wallId,
-                            ) as Wall | undefined)
+                            (w) =>
+                              w.type === "wall" &&
+                              w.id === currentWindow.wallId,
+                          ) as Wall | undefined)
                           : undefined;
                         const constrained = constrainOpeningOnWall(
                           currentWindow.position,
@@ -1955,7 +2688,7 @@ export default function CADEditor({
       >
         <Stage
           ref={stageRef}
-          width={viewport.width}
+          width={viewport.width - (selectedIds.length > 0 ? 280 : 0)}
           height={viewport.height}
           onWheel={handleWheel}
           onMouseMove={handleMouseMove}
@@ -2054,6 +2787,34 @@ export default function CADEditor({
                 true,
               )}
 
+            {/* Stair ghost preview */}
+            {activeTool === "stairs" &&
+              previewPos &&
+              renderStairs(
+                {
+                  id: "__preview__",
+                  type: "stairs",
+                  position: previewPos,
+                  width: 2050,
+                  height: 2450,
+                },
+                true,
+              )}
+
+            {/* Floor ghost preview */}
+            {activeTool === "floor" &&
+              previewPos &&
+              renderFloor(
+                {
+                  id: "__preview__",
+                  type: "floor",
+                  position: previewPos,
+                  width: deriveFloorPreset(selectedFloorModelUrl).width,
+                  depth: deriveFloorPreset(selectedFloorModelUrl).depth,
+                } as Floor,
+                true,
+              )}
+
             {isDrawing &&
               activeTool === "dimension" &&
               startPoint &&
@@ -2067,6 +2828,7 @@ export default function CADEditor({
               )}
           </Layer>
         </Stage>
+
       </div>
 
       {/* Status Bar */}

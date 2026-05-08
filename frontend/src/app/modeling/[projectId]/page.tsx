@@ -21,7 +21,7 @@ import {
 import CADEditor from "@/components/CADEditor";
 import Model3DPreview from "@/components/Model3DPreview";
 import FurnitureModelImport from "@/components/FurnitureModelImport";
-import { Element } from "@/types/modeling";
+import { Element, Door, Window, Wall, Stair, Floor } from "@/types/modeling";
 import { generateProjectBOM, calculateDrawingStats } from "@/lib/calculations";
 import { convert2DTo3D, exportModelAsJSON } from "@/lib/geometry3d";
 import { formatImperial } from "@/lib/calculations";
@@ -31,6 +31,63 @@ interface ModelingProps {
     projectId: string;
   }>;
 }
+
+const ColorPicker = ({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (color: string) => void;
+}) => {
+  const colors = [
+    "#ffffff",
+    "#f8fafc",
+    "#f1f5f9",
+    "#e2e8f0",
+    "#94a3b8",
+    "#475569",
+    "#1e293b",
+    "#b56a2a",
+    "#8a4a1d",
+    "#5c3217",
+    "#3b82f6",
+    "#ef4444",
+    "#22c55e",
+  ];
+
+  return (
+    <div className="space-y-2 pb-3 border-b border-slate-800">
+      <label className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">
+        Primary Color
+      </label>
+      <div className="flex flex-wrap gap-2 pt-1 items-center">
+        {colors.map((c) => (
+          <button
+            key={c}
+            onClick={() => onChange(c)}
+            className={`w-6 h-6 rounded-full border shadow-sm transition-transform hover:scale-110 ${
+              value === c
+                ? "ring-2 ring-blue-500 ring-offset-1 scale-110"
+                : "border-slate-700"
+            }`}
+            style={{ backgroundColor: c }}
+            title={c}
+          />
+        ))}
+        {/* Custom Color Input */}
+        <div className="relative flex items-center justify-center w-6 h-6 rounded-full border border-slate-700 overflow-hidden shadow-sm hover:scale-110 transition-transform group">
+          <input
+            type="color"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="absolute inset-0 w-[200%] h-[200%] cursor-pointer -translate-x-1/4 -translate-y-1/4"
+            title="Custom Color"
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function ModelingWorkspace({ params }: ModelingProps) {
   const { projectId } = use(params);
@@ -45,6 +102,39 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
   const [modelsRefresh, setModelsRefresh] = useState(0);
+  const [selectedElement, setSelectedElement] = useState<Element | null>(null);
+  const [applyFlash, setApplyFlash] = useState(false);
+
+  // Update a property on the selected element and propagate to elements array
+  const handlePropertyUpdate = (field: string, value: any) => {
+    if (!selectedElement) return;
+    const updatedElement = { ...selectedElement, [field]: value } as Element;
+    setSelectedElement(updatedElement);
+    setElements((prev) =>
+      prev.map((el) => (el.id === selectedElement.id ? updatedElement : el)),
+    );
+  };
+
+  // Update nested metadata fields
+  const handleMetadataUpdate = (field: string, value: any) => {
+    if (!selectedElement) return;
+    const meta = (selectedElement as any).metadata || {};
+    const updatedElement = {
+      ...selectedElement,
+      metadata: { ...meta, [field]: value },
+    } as Element;
+    setSelectedElement(updatedElement);
+    setElements((prev) =>
+      prev.map((el) => (el.id === selectedElement.id ? updatedElement : el)),
+    );
+  };
+
+  const handleApplyChanges = () => {
+    setApplyFlash(true);
+    setTimeout(() => setApplyFlash(false), 1800);
+    // Auto-save
+    handleSaveDrawing(elements);
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -145,21 +235,19 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
           <div className="flex items-center gap-1 rounded-lg bg-slate-900 border border-slate-700 p-1">
             <button
               onClick={() => setView("2d")}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition ${
-                view === "2d"
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:text-white"
-              }`}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition ${view === "2d"
+                ? "bg-blue-600 text-white"
+                : "text-slate-400 hover:text-white"
+                }`}
             >
               <Layers className="w-4 h-4" /> 2D
             </button>
             <button
               onClick={() => setView("3d")}
-              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition ${
-                view === "3d"
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:text-white"
-              }`}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition ${view === "3d"
+                ? "bg-blue-600 text-white"
+                : "text-slate-400 hover:text-white"
+                }`}
             >
               <Eye className="w-4 h-4" /> 3D
             </button>
@@ -167,11 +255,10 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
 
           <button
             onClick={() => setShowProperties(!showProperties)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-              showProperties
-                ? "bg-blue-600 text-white"
-                : "bg-slate-800 text-slate-300 hover:text-white"
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${showProperties
+              ? "bg-blue-600 text-white"
+              : "bg-slate-800 text-slate-300 hover:text-white"
+              }`}
           >
             <PanelRightOpen className="w-4 h-4" /> Properties
           </button>
@@ -197,7 +284,7 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
             <FileDown className="w-4 h-4" /> BOQ
           </button>
 
-          <FurnitureModelImport 
+          <FurnitureModelImport
             projectId={projectId}
             onImportSuccess={() => setModelsRefresh(prev => prev + 1)}
           />
@@ -219,22 +306,23 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
               projectId={projectId}
               onSave={handleSaveDrawing}
               onElementsChange={setElements}
+              onSelectionChange={(el) => setSelectedElement(el)}
               initialElements={elements}
             />
           ) : (
-            <Model3DPreview 
+            <Model3DPreview
               key={`3d-${modelsRefresh}`}
-              elements={elements} 
-              projectId={projectId} 
+              elements={elements}
+              projectId={projectId}
+              selectedElementId={selectedElement?.id}
             />
           )}
         </div>
 
         {/* Right Panel - Properties & BOM */}
         <aside
-          className={`bg-slate-800 border-l border-slate-700 overflow-hidden transition-all duration-200 ${
-            showProperties ? "overflow-y-auto" : "border-l-0"
-          }`}
+          className={`bg-slate-800 border-l border-slate-700 overflow-hidden transition-all duration-200 ${showProperties ? "overflow-y-auto" : "border-l-0"
+            }`}
           style={{ width: showProperties ? `${panelWidth}px` : "0px" }}
         >
           <div
@@ -253,25 +341,666 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                 </h2>
               </div>
 
+
+              {/* ─── SELECTED ELEMENT PROPERTY EDITOR ─── */}
+              {selectedElement && (
+                <div className="mb-6 bg-slate-900 rounded-xl border border-slate-700 overflow-hidden">
+                  {/* Element Header */}
+                  <div className="px-4 py-3 bg-slate-950 border-b border-slate-700 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">
+                        {selectedElement.type === "door"
+                          ? "🚪"
+                          : selectedElement.type === "window"
+                            ? "🪟"
+                            : selectedElement.type === "wall"
+                              ? "🧱"
+                              : "📐"}
+                      </span>
+                      <div>
+                        <div className="text-sm font-bold text-white capitalize">
+                          {selectedElement.type} Properties
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono">
+                          {selectedElement.id}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-bold tracking-widest text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded font-mono">
+                      MM
+                    </span>
+                  </div>
+
+                  <div className="p-4 space-y-4">
+                    <div className="text-[9px] uppercase tracking-[0.15em] text-slate-500 font-mono font-bold">
+                      PARAMETERS
+                    </div>
+
+                    {/* ── DOOR PROPERTIES ── */}
+                    {selectedElement.type === "door" && (() => {
+                      const door = selectedElement as Door;
+                      return (
+                        <>
+                          <ColorPicker
+                            value={door.color || "#ffffff"}
+                            onChange={(c) => handlePropertyUpdate("color", c)}
+                          />
+                          {/* Width */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Width</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={door.width}
+                                  min={300}
+                                  max={4000}
+                                  step={10}
+                                  onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range"
+                              min={300}
+                              max={4000}
+                              step={10}
+                              value={door.width}
+                              onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
+                              className="w-full h-1 accent-blue-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                              <span>300mm</span>
+                              <span className="text-blue-400">{formatImperial(door.width)}</span>
+                              <span>4000mm</span>
+                            </div>
+                          </div>
+
+                          {/* Height */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Height</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={door.height}
+                                  min={1500}
+                                  max={3500}
+                                  step={10}
+                                  onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range"
+                              min={1500}
+                              max={3500}
+                              step={10}
+                              value={door.height}
+                              onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
+                              className="w-full h-1 accent-blue-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                              <span>1500mm</span>
+                              <span className="text-blue-400">{formatImperial(door.height)}</span>
+                              <span>3500mm</span>
+                            </div>
+                          </div>
+
+                          {/* Swing Direction */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Swing Direction</label>
+                              <select
+                                value={door.swingDirection}
+                                onChange={(e) => handlePropertyUpdate("swingDirection", e.target.value)}
+                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                              >
+                                <option value="left">Left</option>
+                                <option value="right">Right</option>
+                                <option value="double">Double</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Opening Side */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Opening Side</label>
+                              <select
+                                value={door.openingSide || "inside"}
+                                onChange={(e) => handlePropertyUpdate("openingSide", e.target.value)}
+                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                              >
+                                <option value="inside">Inside</option>
+                                <option value="outside">Outside</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Material */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Material</label>
+                              <select
+                                value={door.material || "Wood"}
+                                onChange={(e) => handlePropertyUpdate("material", e.target.value)}
+                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                              >
+                                <option value="Wood">Wood</option>
+                                <option value="Glass">Glass</option>
+                                <option value="Metal">Metal</option>
+                                <option value="Aluminum">Aluminum</option>
+                                <option value="Steel">Steel</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Door Style */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Door Style</label>
+                              <select
+                                value={(door as any).metadata?.door_style || "single"}
+                                onChange={(e) => {
+                                  handleMetadataUpdate("door_style", e.target.value);
+                                  if (e.target.value === "double") {
+                                    handlePropertyUpdate("swingDirection", "double");
+                                  }
+                                }}
+                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                              >
+                                <option value="single">Single</option>
+                                <option value="double">Double</option>
+                                <option value="multi">Multi Panel</option>
+                                <option value="glass">Glass</option>
+                              </select>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+
+                    {/* ── WINDOW PROPERTIES ── */}
+                    {selectedElement.type === "window" && (() => {
+                      const win = selectedElement as Window;
+                      return (
+                        <>
+                          <ColorPicker
+                            value={win.color || "#ffffff"}
+                            onChange={(c) => handlePropertyUpdate("color", c)}
+                          />
+                          {/* Width */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Width</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={win.width}
+                                  min={300}
+                                  max={4000}
+                                  step={10}
+                                  onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={300} max={4000} step={10} value={win.width}
+                              onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
+                              className="w-full h-1 accent-cyan-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                              <span>300mm</span>
+                              <span className="text-cyan-400">{formatImperial(win.width)}</span>
+                              <span>4000mm</span>
+                            </div>
+                          </div>
+
+                          {/* Height */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Height</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={win.height}
+                                  min={300}
+                                  max={3000}
+                                  step={10}
+                                  onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={300} max={3000} step={10} value={win.height}
+                              onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
+                              className="w-full h-1 accent-cyan-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                              <span>300mm</span>
+                              <span className="text-cyan-400">{formatImperial(win.height)}</span>
+                              <span>3000mm</span>
+                            </div>
+                          </div>
+
+                          {/* Material */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Material</label>
+                              <select
+                                value={win.material || "Aluminum"}
+                                onChange={(e) => handlePropertyUpdate("material", e.target.value)}
+                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                              >
+                                <option value="Aluminum">Aluminum</option>
+                                <option value="Wood">Wood</option>
+                                <option value="PVC">PVC</option>
+                                <option value="Steel">Steel</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Glazing */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Glazing</label>
+                              <select
+                                value={win.glazing || "Standard"}
+                                onChange={(e) => handlePropertyUpdate("glazing", e.target.value)}
+                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                              >
+                                <option value="Standard">Standard</option>
+                                <option value="Clear">Clear</option>
+                                <option value="Tinted">Tinted</option>
+                                <option value="Frosted">Frosted</option>
+                                <option value="Double">Double Glazed</option>
+                              </select>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+
+                    {/* ── WALL PROPERTIES ── */}
+                    {selectedElement.type === "wall" && (() => {
+                      const wall = selectedElement as Wall;
+                      return (
+                        <>
+                          <ColorPicker
+                            value={wall.color || "#ffffff"}
+                            onChange={(c) => handlePropertyUpdate("color", c)}
+                          />
+                          {/* Thickness */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Thickness</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={wall.thickness}
+                                  min={50}
+                                  max={600}
+                                  step={5}
+                                  onChange={(e) => handlePropertyUpdate("thickness", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={50} max={600} step={5} value={wall.thickness}
+                              onChange={(e) => handlePropertyUpdate("thickness", Number(e.target.value))}
+                              className="w-full h-1 accent-amber-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                              <span>50mm</span>
+                              <span className="text-amber-400">{formatImperial(wall.thickness)}</span>
+                              <span>600mm</span>
+                            </div>
+                          </div>
+
+                          {/* Height */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Height</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={wall.height}
+                                  min={1500}
+                                  max={6000}
+                                  step={50}
+                                  onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={1500} max={10000} step={50} value={wall.height}
+                              onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
+                              className="w-full h-1 accent-amber-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                              <span>1500mm</span>
+                              <span className="text-amber-400">{formatImperial(wall.height)}</span>
+                              <span>10000mm</span>
+                            </div>
+                          </div>
+
+                          {/* Material */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Material</label>
+                              <select
+                                value={wall.material || "Concrete"}
+                                onChange={(e) => handlePropertyUpdate("material", e.target.value)}
+                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                              >
+                                <option value="Concrete">Concrete</option>
+                                <option value="Brick">Brick</option>
+                                <option value="CMU">CMU Block</option>
+                                <option value="Wood Frame">Wood Frame</option>
+                                <option value="Steel">Steel</option>
+                                <option value="Glass">Glass</option>
+                              </select>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+
+                    {/* ── STAIR PROPERTIES ── */}
+                    {selectedElement.type === "stairs" && (() => {
+                      const stair = selectedElement as Stair;
+                      return (
+                        <>
+                          <ColorPicker
+                            value={stair.color || "#ffffff"}
+                            onChange={(c) => handlePropertyUpdate("color", c)}
+                          />
+                          {/* Width */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Width</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={stair.width}
+                                  min={600}
+                                  max={3000}
+                                  step={10}
+                                  onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={600} max={3000} step={10} value={stair.width}
+                              onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
+                              className="w-full h-1 accent-indigo-500 cursor-pointer"
+                            />
+                          </div>
+
+                          {/* Height */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Total Rise</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={stair.height}
+                                  min={1000}
+                                  max={4000}
+                                  step={10}
+                                  onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={1000} max={4000} step={10} value={stair.height}
+                              onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
+                              className="w-full h-1 accent-indigo-500 cursor-pointer"
+                            />
+                          </div>
+
+                          {/* Rotation */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Rotation</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={stair.rotation || 0}
+                                  min={0}
+                                  max={360}
+                                  step={1}
+                                  onChange={(e) => handlePropertyUpdate("rotation", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">deg</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={0} max={360} step={1} value={stair.rotation || 0}
+                              onChange={(e) => handlePropertyUpdate("rotation", Number(e.target.value))}
+                              className="w-full h-1 accent-indigo-500 cursor-pointer"
+                            />
+                          </div>
+
+                          {/* Step Count */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Step Count</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={Number(stair.metadata?.number_of_steps || 8)}
+                                  min={1}
+                                  max={30}
+                                  step={1}
+                                  onChange={(e) => handleMetadataUpdate("number_of_steps", String(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">qty</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={1} max={30} step={1} value={Number(stair.metadata?.number_of_steps || 8)}
+                              onChange={(e) => handleMetadataUpdate("number_of_steps", String(e.target.value))}
+                              className="w-full h-1 accent-indigo-500 cursor-pointer"
+                            />
+                          </div>
+
+                          {/* Tread Depth */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Tread Depth</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={Number(stair.metadata?.tread_depth || 0.42) * 1000}
+                                  min={200}
+                                  max={600}
+                                  step={10}
+                                  onChange={(e) => handleMetadataUpdate("tread_depth", String(Number(e.target.value) / 1000))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={200} max={600} step={10} value={Number(stair.metadata?.tread_depth || 0.42) * 1000}
+                              onChange={(e) => handleMetadataUpdate("tread_depth", String(Number(e.target.value) / 1000))}
+                              className="w-full h-1 accent-indigo-500 cursor-pointer"
+                            />
+                          </div>
+
+                          {/* Rise Height */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Rise Height</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={Number(stair.metadata?.rise_height || 0.22) * 1000}
+                                  min={100}
+                                  max={300}
+                                  step={5}
+                                  onChange={(e) => handleMetadataUpdate("rise_height", String(Number(e.target.value) / 1000))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={100} max={300} step={5} value={Number(stair.metadata?.rise_height || 0.22) * 1000}
+                              onChange={(e) => handleMetadataUpdate("rise_height", String(Number(e.target.value) / 1000))}
+                              className="w-full h-1 accent-indigo-500 cursor-pointer"
+                            />
+                          </div>
+
+                          {/* Landing Depth */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Landing Depth</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={Number(stair.metadata?.landing_depth || 0.65) * 1000}
+                                  min={300}
+                                  max={2000}
+                                  step={50}
+                                  onChange={(e) => handleMetadataUpdate("landing_depth", String(Number(e.target.value) / 1000))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={300} max={2000} step={50} value={Number(stair.metadata?.landing_depth || 0.65) * 1000}
+                              onChange={(e) => handleMetadataUpdate("landing_depth", String(Number(e.target.value) / 1000))}
+                              className="w-full h-1 accent-indigo-500 cursor-pointer"
+                            />
+                          </div>
+
+                        </>
+                      );
+                    })()}
+
+                    {/* ── FLOOR PROPERTIES ── */}
+                    {selectedElement.type === "floor" && (() => {
+                      const floor = selectedElement as Floor;
+                      return (
+                        <>
+                          <ColorPicker
+                            value={floor.color || "#ffffff"}
+                            onChange={(c) => handlePropertyUpdate("color", c)}
+                          />
+                          {/* Width */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Width</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={floor.width}
+                                  min={500}
+                                  max={10000}
+                                  step={10}
+                                  onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={500} max={10000} step={10} value={floor.width}
+                              onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
+                              className="w-full h-1 accent-emerald-500 cursor-pointer"
+                            />
+                          </div>
+
+                          {/* Depth */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Depth</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={floor.depth}
+                                  min={500}
+                                  max={10000}
+                                  step={10}
+                                  onChange={(e) => handlePropertyUpdate("depth", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range" min={500} max={10000} step={10} value={floor.depth}
+                              onChange={(e) => handlePropertyUpdate("depth", Number(e.target.value))}
+                              className="w-full h-1 accent-emerald-500 cursor-pointer"
+                            />
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Apply Button */}
+                  <div className="px-4 py-3 bg-slate-950 border-t border-slate-700 space-y-2">
+                    {applyFlash && (
+                      <div className="px-3 py-2 bg-green-500/10 border border-green-500/25 rounded text-[11px] text-green-400 font-mono font-bold">
+                        ✓ Changes applied to design
+                      </div>
+                    )}
+                    <button
+                      onClick={handleApplyChanges}
+                      className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${applyFlash
+                        ? "bg-green-600 text-white"
+                        : "bg-blue-600 hover:bg-blue-700 text-white"
+                        }`}
+                    >
+                      <span className="text-[11px]">▶</span> Apply Changes
+                    </button>
+                    <div className="text-[10px] text-slate-600 text-center font-mono">
+                      Preview updates live · Apply to save
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Tabs */}
               <div className="flex gap-2 mb-6 bg-slate-900 p-1 rounded-lg">
                 <button
                   onClick={() => setActivePanelTab("info")}
-                  className={`flex-1 px-3 py-2 text-sm rounded font-medium transition ${
-                    activePanelTab === "info"
-                      ? "bg-slate-700 text-white"
-                      : "text-slate-400 hover:text-white"
-                  }`}
+                  className={`flex-1 px-3 py-2 text-sm rounded font-medium transition ${activePanelTab === "info"
+                    ? "bg-slate-700 text-white"
+                    : "text-slate-400 hover:text-white"
+                    }`}
                 >
                   Info
                 </button>
                 <button
                   onClick={() => setActivePanelTab("materials")}
-                  className={`flex-1 px-3 py-2 text-sm rounded font-medium transition ${
-                    activePanelTab === "materials"
-                      ? "bg-slate-700 text-white"
-                      : "text-slate-400 hover:text-white"
-                  }`}
+                  className={`flex-1 px-3 py-2 text-sm rounded font-medium transition ${activePanelTab === "materials"
+                    ? "bg-slate-700 text-white"
+                    : "text-slate-400 hover:text-white"
+                    }`}
                 >
                   Materials
                 </button>

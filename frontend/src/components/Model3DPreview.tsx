@@ -15,12 +15,43 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 // @ts-ignore
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import {
+  renderClassicDoubleDoor,
+  renderMandalaDoubleDoor,
+  renderSlimBlackGlassDoor,
+  renderGeometricArtGlassDoor,
+  renderLuxuryGoldGlassDoor,
+  renderModernSlidingGlassDoor,
+  renderLuxuryDoor,
+  renderProceduralDoor,
+  renderModernWoodInlayDoor,
+  renderSlattedPivotDoor,
+} from "./modeling/doors";
+import {
+  renderFloatingSwitchbackStairs,
+  renderSpiralMetalStairs,
+  renderConcreteParametricStairs,
+} from "./modeling/stairs";
+import {
+  renderSlidingGlassWindow,
+  renderProceduralWindow,
+  renderDoubleCasementTransomWindow,
+} from "./modeling/windows";
+import {
+  renderMarbleVitrifiedFloor,
+  renderConcreteTileFloor,
+  renderDecorativeMedallionFloor,
+  renderLuxuryStoneFloor,
+  renderCheckerCeramicFloor,
+} from "./modeling/floors";
 import { convert2DTo3D } from "@/lib/geometry3d";
-import { Door, Element, FurnitureItem, Window } from "@/types/modeling";
+import { renderWoodenSlatWall, renderStandardBIMWall } from "./modeling/walls";
+import { Door, Element, FurnitureItem, Window, Wall } from "@/types/modeling";
 
 interface Model3DPreviewProps {
   elements: Element[];
   projectId: string;
+  selectedElementId?: string | null;
 }
 
 const PLAN_SCALE = 10;
@@ -31,6 +62,7 @@ const METERS_TO_WORLD = 2; // 1 meter = 2 units (since 1m = 20px and 10px = 1 un
 export default function Model3DPreview({
   elements,
   projectId,
+  selectedElementId,
 }: Model3DPreviewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [showDebugGuides, setShowDebugGuides] = useState(false);
@@ -43,6 +75,10 @@ export default function Model3DPreview({
       model_type: string;
     }>
   >([]);
+  const cameraStateRef = useRef<{
+    position: THREE.Vector3;
+    target: THREE.Vector3;
+  } | null>(null);
 
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -143,7 +179,9 @@ export default function Model3DPreview({
       0.1,
       20000,
     );
-    camera.position.set(120, 120, 140);
+    // camera.position.set(120, 120, 140); // Will be set by controls later if not in ref
+
+
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -153,7 +191,19 @@ export default function Model3DPreview({
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.target.set(0, 20, 0);
+    controls.dampingFactor = 0.05;
+    controls.screenSpacePanning = true;
+    controls.minDistance = 2;
+    controls.maxDistance = 10000;
+
+    if (cameraStateRef.current) {
+      camera.position.copy(cameraStateRef.current.position);
+      controls.target.copy(cameraStateRef.current.target);
+    } else {
+      camera.position.set(120, 120, 140);
+      controls.target.set(0, 10, 0);
+    }
+    controls.update();
 
     let transformControls: any = null;
     try {
@@ -254,17 +304,21 @@ export default function Model3DPreview({
       const isGlass = assetName?.toLowerCase().includes("glass");
       const baseColor = isGlass ? "#93c5fd" : "#4a3122"; // Blueish for glass, wood-brown otherwise
 
+      const isSelected = selectedElementId !== undefined && assetName?.includes(selectedElementId || "___NONE___");
+
       obj.traverse((child: any) => {
         if (child instanceof THREE.Mesh) {
           child.castShadow = true;
           child.receiveShadow = true;
           child.material = new THREE.MeshStandardMaterial({
-            color: baseColor,
+            color: isSelected ? "#3b82f6" : baseColor,
             roughness: isGlass ? 0.1 : 0.7,
             metalness: isGlass ? 0.2 : 0.1,
             transparent: isGlass,
             opacity: isGlass ? 0.6 : 1.0,
             side: THREE.DoubleSide,
+            emissive: isSelected ? "#1d4ed8" : "#000000",
+            emissiveIntensity: isSelected ? 0.5 : 0,
           });
         }
       });
@@ -379,11 +433,11 @@ export default function Model3DPreview({
             prev.map((item) =>
               item.id === id
                 ? {
-                    ...item,
-                    x,
-                    y,
-                    z,
-                  }
+                  ...item,
+                  x,
+                  y,
+                  z,
+                }
                 : item,
             ),
           );
@@ -510,74 +564,84 @@ export default function Model3DPreview({
 
       const openings = wallToOpeningMap.get(wall.id) || [];
 
-      // Create a shape for the wall face
-      const shape = new THREE.Shape();
-      shape.moveTo(0, 0);
-      shape.lineTo(length, 0);
-      shape.lineTo(length, height);
-      shape.lineTo(0, height);
-      shape.closePath();
-
-      // Add holes for doors and windows
-      // Project the opening center onto the wall direction vector for accurate hole placement
       const wallDirLen = Math.hypot(dx, dy);
       const wallUnitX = dx / (wallDirLen || 1);
       const wallUnitY = dy / (wallDirLen || 1);
 
-      openings.forEach((op) => {
-        const opW = op.width / MM_SCALE;
-        const opH = op.height / MM_SCALE;
+      const processedOpenings = openings
+        .filter((op) => {
+          // Robust validation to prevent NaN issues in Three.js
+          return (
+            op &&
+            typeof op.width === "number" &&
+            !isNaN(op.width) &&
+            typeof op.height === "number" &&
+            !isNaN(op.height) &&
+            op.position &&
+            !isNaN(op.position.x) &&
+            !isNaN(op.position.y)
+          );
+        })
+        .map((op) => {
+          const opW = op.width / MM_SCALE;
+          const opH = op.height / MM_SCALE;
 
-        // Project op position onto wall direction to get distance along the wall
-        const relX = op.position.x - wall.startPoint.x;
-        const relY = op.position.y - wall.startPoint.y;
-        const distAlongWallRaw =
-          (relX * wallUnitX + relY * wallUnitY) / PLAN_SCALE;
-        const minCenter = opW / 2;
-        const maxCenter = length - opW / 2;
-        const distAlongWall =
-          maxCenter >= minCenter
-            ? Math.min(maxCenter, Math.max(minCenter, distAlongWallRaw))
-            : distAlongWallRaw;
+          // Project op position onto wall direction to get distance along the wall
+          const relX = op.position.x - wall.startPoint.x;
+          const relY = op.position.y - wall.startPoint.y;
+          const distAlongWallRaw =
+            (relX * wallUnitX + relY * wallUnitY) / PLAN_SCALE;
+          const minCenter = opW / 2;
+          const maxCenter = length - opW / 2;
+          const distAlongWall =
+            maxCenter >= minCenter
+              ? Math.min(maxCenter, Math.max(minCenter, distAlongWallRaw))
+              : distAlongWallRaw;
 
-        const sillH = op.type === "window" ? (op as any).sillHeight || 1.0 : 0;
+          const sillH =
+            (op.type === "window"
+              ? (op as any).position?.z ?? (op as any).sillHeight ?? 1000
+              : 0) / MM_SCALE;
 
-        const hole = new THREE.Path();
-        const xStart = distAlongWall - opW / 2;
-        // Clamp to wall extents to avoid holes outside the wall
-        const clampedStart = Math.max(0.05, xStart);
-        const clampedEnd = Math.min(length - 0.05, xStart + opW);
+          const xStart = distAlongWall - opW / 2;
+          return {
+            minX: xStart,
+            maxX: xStart + opW,
+            height: opH,
+            sillHeight: sillH,
+          };
+        });
 
-        // Draw hole Clockwise (opposite to outer shape) for proper triangulation
-        hole.moveTo(clampedStart, sillH);
-        hole.lineTo(clampedStart, sillH + opH);
-        hole.lineTo(clampedEnd, sillH + opH);
-        hole.lineTo(clampedEnd, sillH);
-        hole.closePath();
-        shape.holes.push(hole);
-      });
+      const isSelected = selectedElementId === wall.id;
+      let material;
 
-      const geometry = new (THREE as any).ExtrudeGeometry(shape, {
-        depth: thickness,
-        bevelEnabled: false,
-      });
-      // Center the geometry on the extrusion axis so it sits centered on the plan line
-      geometry.translate(0, 0, -thickness / 2);
-
-      const material = new THREE.MeshStandardMaterial({
-        color: "#d4a574",
-        roughness: 0.85,
-        metalness: 0.05,
-      });
-
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(
-        wall.startPoint.x / PLAN_SCALE,
-        0,
-        wall.startPoint.y / PLAN_SCALE,
-      );
-      mesh.rotation.y = -Math.atan2(dy, dx);
-      scene.add(mesh);
+      if (wall.material === "Wooden Slat") {
+        material = renderWoodenSlatWall(
+          scene,
+          wall,
+          dx,
+          dy,
+          length,
+          thickness,
+          height,
+          processedOpenings,
+          isSelected,
+          wall.color
+        );
+      } else {
+        material = renderStandardBIMWall(
+          scene,
+          wall,
+          dx,
+          dy,
+          length,
+          thickness,
+          height,
+          processedOpenings,
+          isSelected,
+          wall.color
+        );
+      }
 
       // Add corner fillers (columns) to hide gaps between walls
       const fillerGeom = new THREE.BoxGeometry(thickness, height, thickness);
@@ -663,10 +727,15 @@ export default function Model3DPreview({
       const px = projectedDoor.x;
       const pz = projectedDoor.z;
 
-      const renderProceduralDoor = () => {
+      const drawDoor = () => {
         const doorStyle = String(
           (element as any)?.metadata?.door_style || "",
         ).toLowerCase();
+        const isLuxury = doorStyle === "luxury_modern";
+        const isWoodInlay = doorStyle === "wood_inlay";
+        const isSlatted = doorStyle === "slatted_pivot";
+        const isClassic = doorStyle === "classic_double";
+        const isMandala = doorStyle === "mandala_double";
         const isDouble =
           door.swingDirection === "double" || doorStyle === "double";
         const isMulti = doorStyle === "multi";
@@ -674,125 +743,216 @@ export default function Model3DPreview({
           String((door as any).material || "").toLowerCase() === "glass" ||
           doorStyle === "glass";
 
-        const leafMaterial = new THREE.MeshStandardMaterial({
-          color: isGlass ? "#9cc7d8" : "#7c2d12",
-          roughness: isGlass ? 0.2 : 0.55,
-          metalness: isGlass ? 0.15 : 0.1,
-          transparent: isGlass,
-          opacity: isGlass ? 0.65 : 1,
-        });
-
-        const addLeaf = (
-          centerX: number,
-          centerY: number,
-          centerZ: number,
-          leafW: number,
-        ) => {
-          const doorLeaf = new THREE.Mesh(
-            new THREE.BoxGeometry(
-              Math.max(leafW - 0.05, 0.08),
-              doorH - 0.05,
-              doorLeafDepth,
-            ),
-            leafMaterial,
+        if (isClassic) {
+          renderClassicDoubleDoor(
+            scene,
+            px,
+            pz,
+            vectors,
+            doorW,
+            doorH,
+            hostWall,
+            selectedElementId === door.id,
+            door.color,
           );
-          doorLeaf.position.set(centerX, centerY, centerZ);
-          if (vectors) {
-            doorLeaf.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-          }
-          scene.add(doorLeaf);
-        };
-
-        if (isMulti) {
-          const panelW = doorW / 3;
-          addLeaf(
-            px - (vectors?.dir.x || 0) * panelW,
-            doorH / 2,
-            pz - (vectors?.dir.z || 0) * panelW,
-            panelW,
-          );
-          addLeaf(px, doorH / 2, pz, panelW);
-          addLeaf(
-            px + (vectors?.dir.x || 0) * panelW,
-            doorH / 2,
-            pz + (vectors?.dir.z || 0) * panelW,
-            panelW,
-          );
-        } else if (isDouble) {
-          const halfW = doorW / 2;
-          addLeaf(
-            px - (vectors?.dir.x || 0) * (halfW / 2),
-            doorH / 2,
-            pz - (vectors?.dir.z || 0) * (halfW / 2),
-            halfW,
-          );
-          addLeaf(
-            px + (vectors?.dir.x || 0) * (halfW / 2),
-            doorH / 2,
-            pz + (vectors?.dir.z || 0) * (halfW / 2),
-            halfW,
-          );
-        } else {
-          addLeaf(px, doorH / 2, pz, doorW);
+          return;
         }
 
-        const handle = new THREE.Mesh(
-          new THREE.SphereGeometry(0.05),
-          new THREE.MeshStandardMaterial({ color: "#fbbf24" }),
-        );
-        handle.position.set(
-          px + (vectors?.dir.x || 0) * (doorW * 0.4),
-          doorH / 2,
-          pz + (vectors?.dir.z || 0) * (doorW * 0.4),
-        );
-        scene.add(handle);
+        if (isMandala) {
+          renderMandalaDoubleDoor(
+            scene,
+            px,
+            pz,
+            vectors,
+            doorW,
+            doorH,
+            hostWall,
+            selectedElementId === door.id,
+            door.color,
+          );
+          return;
+        }
 
-        const frameColor = "#522b11";
-        const frameMaterial = new THREE.MeshStandardMaterial({
-          color: frameColor,
-          roughness: 0.7,
-        });
-        const frameThickness = hostWall
-          ? hostWall.thickness / MM_SCALE + 0.05
-          : 0.5;
+        if (isSlatted) {
+          renderSlattedPivotDoor(
+            scene,
+            px,
+            pz,
+            vectors,
+            doorW,
+            doorH,
+            hostWall,
+            selectedElementId === door.id,
+            door.color,
+          );
+          return;
+        }
 
-        const topFrame = new THREE.Mesh(
-          new THREE.BoxGeometry(doorW + 0.1, 0.1, frameThickness),
-          frameMaterial,
-        );
-        topFrame.position.set(px, doorH + 0.05, pz);
-        if (vectors)
-          topFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-        scene.add(topFrame);
+        if (isWoodInlay) {
+          renderModernWoodInlayDoor(
+            scene,
+            px,
+            pz,
+            vectors,
+            doorW,
+            doorH,
+            hostWall,
+            selectedElementId === door.id,
+            door.color,
+          );
+          return;
+        }
 
-        const leftFrame = new THREE.Mesh(
-          new THREE.BoxGeometry(0.1, doorH, frameThickness),
-          frameMaterial,
-        );
-        const lx = px - (vectors?.dir.x || 0) * (doorW / 2 + 0.05);
-        const lz = pz - (vectors?.dir.z || 0) * (doorW / 2 + 0.05);
-        leftFrame.position.set(lx, doorH / 2, lz);
-        if (vectors)
-          leftFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-        scene.add(leftFrame);
+        if (isLuxury) {
+          renderLuxuryDoor(
+            scene,
+            px,
+            pz,
+            vectors,
+            doorW,
+            doorH,
+            hostWall,
+            selectedElementId === door.id,
+            door.color,
+          );
+          return;
+        }
 
-        const rightFrame = new THREE.Mesh(
-          new THREE.BoxGeometry(0.1, doorH, frameThickness),
-          frameMaterial,
+        if (doorStyle === "slim_black" || doorStyle === "slim_black_glass") {
+          renderSlimBlackGlassDoor(
+            scene,
+            px,
+            pz,
+            vectors,
+            doorW,
+            doorH,
+            hostWall,
+            selectedElementId === door.id,
+            door.color,
+          );
+          return;
+        }
+
+        if (doorStyle === "geometric_double" || doorStyle === "geometric_double_glass") {
+          renderGeometricArtGlassDoor(
+            scene,
+            px,
+            pz,
+            vectors,
+            doorW,
+            doorH,
+            hostWall,
+            selectedElementId === door.id,
+            door.color,
+          );
+          return;
+        }
+
+        if (doorStyle === "luxury_white_gold" || doorStyle === "luxury_gold_glass") {
+          renderLuxuryGoldGlassDoor(
+            scene,
+            px,
+            pz,
+            vectors,
+            doorW,
+            doorH,
+            hostWall,
+            selectedElementId === door.id,
+            door.color,
+          );
+          return;
+        }
+
+        if (doorStyle === "modern_sliding" || doorStyle === "modern_sliding_glass") {
+          renderModernSlidingGlassDoor(
+            scene,
+            px,
+            pz,
+            vectors,
+            doorW,
+            doorH,
+            hostWall,
+            selectedElementId === door.id,
+            door.color,
+          );
+          return;
+        }
+
+        renderProceduralDoor(
+          scene,
+          px,
+          pz,
+          vectors,
+          doorW,
+          doorH,
+          door,
+          element,
+          hostWall,
+          selectedElementId,
+          door.color,
         );
-        const rx = px + (vectors?.dir.x || 0) * (doorW / 2 + 0.05);
-        const rz = pz + (vectors?.dir.z || 0) * (doorW / 2 + 0.05);
-        rightFrame.position.set(rx, doorH / 2, rz);
-        if (vectors)
-          rightFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-        scene.add(rightFrame);
       };
 
-      // If door has a model URL, load by extension. On any failure, fall back to procedural door.
       const modelUrl =
         (element as any)?.metadata?.door_model_url ||
         (element as any)?.metadata?.doorModelUrl;
-      if (modelUrl) {
+
+      if (modelUrl === "LUXURY_MODERN_V1") {
+        renderLuxuryDoor(
+          scene,
+          px,
+          pz,
+          vectors,
+          doorW,
+          doorH,
+          hostWall,
+          selectedElementId === door.id,
+        );
+      } else if (modelUrl === "MODERN_WOOD_INLAY_V1") {
+        renderModernWoodInlayDoor(
+          scene,
+          px,
+          pz,
+          vectors,
+          doorW,
+          doorH,
+          hostWall,
+          selectedElementId === door.id,
+        );
+      } else if (modelUrl === "SLATTED_PIVOT_V1") {
+        renderSlattedPivotDoor(
+          scene,
+          px,
+          pz,
+          vectors,
+          doorW,
+          doorH,
+          hostWall,
+          selectedElementId === door.id,
+        );
+      } else if (modelUrl === "CLASSIC_DOUBLE_V1") {
+        renderClassicDoubleDoor(
+          scene,
+          px,
+          pz,
+          vectors,
+          doorW,
+          doorH,
+          hostWall,
+          selectedElementId === door.id,
+        );
+      } else if (modelUrl === "MANDALA_DOUBLE_V1") {
+        renderMandalaDoubleDoor(
+          scene,
+          px,
+          pz,
+          vectors,
+          doorW,
+          doorH,
+          hostWall,
+          selectedElementId === door.id,
+        );
+      } else if (modelUrl) {
         const normalizedUrl = String(modelUrl).trim();
         const lowerUrl = normalizedUrl.split("?")[0].toLowerCase();
         const placeholder = new THREE.Group();
@@ -825,7 +985,7 @@ export default function Model3DPreview({
             reason,
           );
           scene.remove(placeholder);
-          renderProceduralDoor();
+          drawDoor();
         };
 
         if (lowerUrl.endsWith(".stl")) {
@@ -867,7 +1027,7 @@ export default function Model3DPreview({
       }
 
       // Procedural door fallback (default)
-      renderProceduralDoor();
+      drawDoor();
     });
 
     model3D.windows.forEach((window_) => {
@@ -877,7 +1037,9 @@ export default function Model3DPreview({
         ? wallById.get(window_.wallId)
         : undefined;
       const vectors = hostWall ? getWallVectors(hostWall) : null;
-      const sillHeight = (window_.position.z || 1000) / MM_SCALE;
+      const sillHeight =
+        ((window_ as any).position?.z ?? (window_ as any).sillHeight ?? 1000) /
+        MM_SCALE;
 
       const frameMaterial = new THREE.MeshStandardMaterial({
         color: "#475569",
@@ -893,60 +1055,56 @@ export default function Model3DPreview({
       const px = projectedWindow.x;
       const pz = projectedWindow.z;
 
-      const renderProceduralWindow = () => {
-        // Window frame (simplified as a hollow border using 4 boxes)
-        const fT = 0.1; // frame thickness
-        const frameThickness = hostWall
-          ? hostWall.thickness / MM_SCALE + 0.02
-          : 0.48;
-        const winFrame = new THREE.Group();
+      const drawWindow = () => {
+        const windowStyle = String(
+          (element as any)?.metadata?.windowStyle || "",
+        ).toLowerCase();
+        const isSliding = windowStyle === "sliding";
+        const isDoubleCasement = windowStyle === "double_casement_transom";
 
-        const top = new THREE.Mesh(
-          new THREE.BoxGeometry(winW + fT, fT, frameThickness),
-          frameMaterial,
-        );
-        top.position.y = winH / 2 + fT / 2;
-
-        const bottom = new THREE.Mesh(
-          new THREE.BoxGeometry(winW + fT, fT, frameThickness),
-          frameMaterial,
-        );
-        bottom.position.y = -winH / 2 - fT / 2;
-
-        const left = new THREE.Mesh(
-          new THREE.BoxGeometry(fT, winH, frameThickness),
-          frameMaterial,
-        );
-        left.position.x = -winW / 2 - fT / 2;
-
-        const right = new THREE.Mesh(
-          new THREE.BoxGeometry(fT, winH, frameThickness),
-          frameMaterial,
-        );
-        right.position.x = winW / 2 + fT / 2;
-
-        winFrame.add(top, bottom, left, right);
-
-        winFrame.position.set(px, sillHeight + winH / 2, pz);
-        if (vectors)
-          winFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-        scene.add(winFrame);
-
-        const glass = new THREE.Mesh(
-          new THREE.BoxGeometry(winW - 0.05, winH - 0.05, 0.1),
-          new THREE.MeshStandardMaterial({
-            color: "#7dd3fc",
-            transparent: true,
-            opacity: 0.5,
-            roughness: 0.2,
-            metalness: 0.15,
-          }),
-        );
-        glass.position.set(px, sillHeight + winH / 2, pz);
-        if (vectors) {
-          glass.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
+        if (isDoubleCasement) {
+          renderDoubleCasementTransomWindow(
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
+          );
+          return;
         }
-        scene.add(glass);
+
+        if (isSliding) {
+          renderSlidingGlassWindow(
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            window_,
+            hostWall,
+            selectedElementId,
+          );
+          return;
+        }
+
+        renderProceduralWindow(
+          scene,
+          px,
+          pz,
+          vectors,
+          winW,
+          winH,
+          sillHeight,
+          window_,
+          hostWall,
+          selectedElementId,
+        );
       };
 
       const modelUrl =
@@ -983,8 +1141,40 @@ export default function Model3DPreview({
             reason,
           );
           scene.remove(placeholder);
-          renderProceduralWindow();
+          drawWindow();
         };
+
+        if (modelUrl === "MODERN_SLIDING_V1") {
+          renderSlidingGlassWindow(
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            window_,
+            hostWall,
+            selectedElementId,
+          );
+          return;
+        }
+
+        if (modelUrl === "DOUBLE_CASEMENT_TRANSOM_V1") {
+          renderDoubleCasementTransomWindow(
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
+            window_.color,
+          );
+          return;
+        }
 
         if (lowerUrl.endsWith(".stl")) {
           const stlLoader = new STLLoader();
@@ -1024,8 +1214,132 @@ export default function Model3DPreview({
         return;
       }
 
-      renderProceduralWindow();
+      drawWindow();
     });
+
+    // --- RENDER FLOORS ---
+    elements
+      .filter((el) => el.type === "floor")
+      .forEach((floor: any) => {
+        const px = floor.position.x / PLAN_SCALE;
+        const pz = floor.position.y / PLAN_SCALE;
+        const floorStyle = (floor.metadata?.floor_style || "").toLowerCase();
+        const modelUrl = floor.metadata?.floor_model_url;
+
+        const isMarble =
+          floorStyle === "marble_vitrified" ||
+          modelUrl === "MARBLE_VITRIFIED_V1";
+        const isConcrete =
+          floorStyle === "concrete_tile" ||
+          modelUrl === "CONCRETE_TILE_V1";
+        const isDecorative =
+          floorStyle === "decorative_medallion" ||
+          modelUrl === "DECORATIVE_MEDALLION_V1";
+        const isLuxury =
+          floorStyle === "luxury_stone" ||
+          modelUrl === "LUXURY_STONE_V1";
+        const isChecker =
+          floorStyle === "checker_ceramic" ||
+          modelUrl === "CHECKER_CERAMIC_V1";
+
+        if (isMarble) {
+          renderMarbleVitrifiedFloor(
+            scene,
+            px,
+            pz,
+            floor.width,
+            floor.depth,
+            selectedElementId === floor.id,
+            floor.color,
+          );
+        } else if (isConcrete) {
+          renderConcreteTileFloor(
+            scene,
+            px,
+            pz,
+            floor.width,
+            floor.depth,
+            selectedElementId === floor.id,
+            floor.color,
+          );
+        } else if (isDecorative) {
+          renderDecorativeMedallionFloor(
+            scene,
+            px,
+            pz,
+            floor.width,
+            floor.depth,
+            selectedElementId === floor.id,
+            floor.color,
+          );
+        } else if (isLuxury) {
+          renderLuxuryStoneFloor(
+            scene,
+            px,
+            pz,
+            floor.width,
+            floor.depth,
+            selectedElementId === floor.id,
+            floor.color,
+          );
+        } else if (isChecker) {
+          renderCheckerCeramicFloor(
+            scene,
+            px,
+            pz,
+            floor.width,
+            floor.depth,
+            selectedElementId === floor.id,
+            floor.color,
+          );
+        } else {
+          // Fallback to marble
+          renderMarbleVitrifiedFloor(
+            scene,
+            px,
+            pz,
+            floor.width,
+            floor.depth,
+            selectedElementId === floor.id,
+            floor.color,
+          );
+        }
+      });
+
+    // --- RENDER STAIRS ---
+    elements
+      .filter((el) => el.type === "stairs")
+      .forEach((stair: any) => {
+        const px = stair.position.x / PLAN_SCALE;
+        const pz = stair.position.y / PLAN_SCALE;
+        const stairStyle = (stair.metadata?.stair_style || "").toLowerCase();
+        const modelUrl = stair.metadata?.stair_model_url;
+
+        const isFloatingSwitchback =
+          stairStyle === "floating_switchback" ||
+          modelUrl === "FLOATING_SWITCHBACK_V1";
+
+        if (isFloatingSwitchback) {
+          renderFloatingSwitchbackStairs(
+            scene,
+            px,
+            pz,
+            stair.width,
+            stair.height,
+            stair.rotation || 0,
+            selectedElementId === stair.id,
+            stair.color,
+          );
+        } else if (stairStyle === "spiral_metal") {
+          renderSpiralMetalStairs(scene, stair, selectedElementId === stair.id);
+        } else if (stairStyle === "concrete_parametric") {
+          renderConcreteParametricStairs(
+            scene,
+            stair,
+            selectedElementId === stair.id,
+          );
+        }
+      });
 
     const furnitureColorMap: Record<string, string> = {
       Chair: "#8B4513",
@@ -1475,6 +1789,12 @@ export default function Model3DPreview({
     animate();
 
     return () => {
+      // Persist camera state before disposing
+      cameraStateRef.current = {
+        position: camera.position.clone(),
+        target: controls.target.clone(),
+      };
+
       cancelAnimationFrame(rafId);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
@@ -1497,18 +1817,37 @@ export default function Model3DPreview({
         }
       });
     };
-  }, [elements, projectId, furnitureItems, importedModels, showDebugGuides]);
+  }, [
+    elements,
+    projectId,
+    furnitureItems,
+    importedModels,
+    showDebugGuides,
+    selectedElementId,
+  ]);
 
   return (
     <div className="relative w-full h-full">
       <div ref={containerRef} className="w-full h-full" />
-      <button
-        type="button"
-        onClick={() => setShowDebugGuides((prev) => !prev)}
-        className="absolute left-3 top-3 z-10 rounded border border-slate-500 bg-slate-900/80 px-3 py-1 text-xs text-slate-100"
-      >
-        {showDebugGuides ? "Hide" : "Show"} Alignment Debug
-      </button>
+      <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={() => setShowDebugGuides((prev) => !prev)}
+          className="rounded border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-[10px] font-bold tracking-wider text-slate-100 hover:bg-slate-800 transition-colors uppercase shadow-xl"
+        >
+          {showDebugGuides ? "Hide" : "Show"} Debug
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            cameraStateRef.current = null;
+            setShowDebugGuides((prev) => !prev);
+          }}
+          className="rounded border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-[10px] font-bold tracking-wider text-slate-100 hover:bg-slate-800 transition-colors uppercase shadow-xl"
+        >
+          Reset View
+        </button>
+      </div>
     </div>
   );
 }

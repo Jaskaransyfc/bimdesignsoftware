@@ -73,6 +73,7 @@ export const wallTo3D = (wall: Wall, levelElevation = 0): WallGeometry3D => {
     thickness: wall.thickness,
     height: wall.height,
     material: wall.material,
+    color: wall.color,
     levelId: wall.levelId,
   };
 };
@@ -178,6 +179,7 @@ export const doorTo3D = (door: Door, levelElevation = 0): DoorGeometry3D => {
     height: door.height,
     swingDirection: door.swingDirection,
     wallId: door.wallId || "",
+    color: door.color,
   };
 };
 
@@ -208,6 +210,7 @@ export const windowTo3D = (
     width: window_.width,
     height: window_.height,
     wallId: window_.wallId || "",
+    color: window_.color,
   };
 };
 
