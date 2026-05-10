@@ -32,6 +32,7 @@ import {
   renderSpiralMetalStairs,
   renderConcreteParametricStairs,
 } from "./modeling/stairs";
+import { renderWaterTank } from "./modeling/items";
 import {
   renderSlidingGlassWindow,
   renderProceduralWindow,
@@ -1322,13 +1323,8 @@ export default function Model3DPreview({
         if (isFloatingSwitchback) {
           renderFloatingSwitchbackStairs(
             scene,
-            px,
-            pz,
-            stair.width,
-            stair.height,
-            stair.rotation || 0,
-            selectedElementId === stair.id,
-            stair.color,
+            stair,
+            selectedElementId === stair.id
           );
         } else if (stairStyle === "spiral_metal") {
           renderSpiralMetalStairs(scene, stair, selectedElementId === stair.id);
@@ -1341,228 +1337,31 @@ export default function Model3DPreview({
         }
       });
 
-    const furnitureColorMap: Record<string, string> = {
-      Chair: "#8B4513",
-      Sofa: "#A9A9A9",
-      Table: "#CD853F",
-      TV: "#111111",
-      Bed: "#f1d5dc",
-      Cabinet: "#7c4a1d",
-      Desk: "#9a7f6f",
-      Bookshelf: "#654321",
-      Sink: "#d1d5db",
-    };
-
-    // Function to create furniture-specific geometry
-    const createFurnitureGeometry = (item: FurnitureItem) => {
+    // Function to create item-specific geometry
+    const createItemGeometry = (item: FurnitureItem) => {
       const w = Math.max((item.width || 1) * METERS_TO_WORLD, 0.05);
       const d = Math.max((item.depth || 1) * METERS_TO_WORLD, 0.05);
       const h = Math.max((item.height || 0.8) * METERS_TO_WORLD, 0.05);
 
-      // Create furniture-specific shapes
-      switch (item.assetType) {
-        case "Sofa": {
-          const group = new THREE.Group();
-          // Main seat
-          const seatGeo = new THREE.BoxGeometry(w, h * 0.6, d);
-          const seatMat = new THREE.MeshStandardMaterial({
-            color: furnitureColorMap.Sofa,
-            roughness: 0.6,
-            metalness: 0.1,
-          });
-          const seat = new THREE.Mesh(seatGeo, seatMat);
-          seat.position.y = h * 0.3;
-          group.add(seat);
-
-          // Back cushion
-          const backGeo = new THREE.BoxGeometry(w, h * 0.5, d * 0.3);
-          const back = new THREE.Mesh(backGeo, seatMat);
-          back.position.set(0, h * 0.6, -d * 0.35);
-          group.add(back);
-
-          // Left arm
-          const armGeo = new THREE.BoxGeometry(d * 0.4, h * 0.5, d);
-          const arm = new THREE.Mesh(armGeo, seatMat);
-          arm.position.set(-w * 0.5 - d * 0.2, h * 0.4, 0);
-          group.add(arm.clone());
-          arm.position.x = w * 0.5 + d * 0.2;
-          group.add(arm);
-
-          return group;
-        }
-
-        case "Bed": {
-          const group = new THREE.Group();
-          const matGeo = new THREE.BoxGeometry(w * 0.95, h * 0.2, d * 0.95);
-          const matMat = new THREE.MeshStandardMaterial({
-            color: "#f1d5dc",
-            roughness: 0.7,
-          });
-          const mattress = new THREE.Mesh(matGeo, matMat);
-          mattress.position.y = h * 0.5;
-          group.add(mattress);
-
-          // Headboard
-          const headGeo = new THREE.BoxGeometry(w * 0.95, h * 0.8, d * 0.15);
-          const headMat = new THREE.MeshStandardMaterial({
-            color: "#8B4513",
-            roughness: 0.6,
-          });
-          const head = new THREE.Mesh(headGeo, headMat);
-          head.position.set(0, h * 0.6, -d * 0.5);
-          group.add(head);
-
-          return group;
-        }
-
-        case "Chair": {
-          const group = new THREE.Group();
-          const seatGeo = new THREE.BoxGeometry(w, h * 0.3, d);
-          const seatMat = new THREE.MeshStandardMaterial({
-            color: furnitureColorMap.Chair,
-            roughness: 0.5,
-          });
-          const seat = new THREE.Mesh(seatGeo, seatMat);
-          seat.position.y = h * 0.25;
-          group.add(seat);
-
-          // Back
-          const backGeo = new THREE.BoxGeometry(w, h * 0.6, d * 0.2);
-          const back = new THREE.Mesh(backGeo, seatMat);
-          back.position.set(0, h * 0.55, -d * 0.4);
-          group.add(back);
-
-          // Legs
-          const legGeo = new THREE.BoxGeometry(w * 0.2, h * 0.25, d * 0.2);
-          const legMat = new THREE.MeshStandardMaterial({
-            color: "#654321",
-            roughness: 0.7,
-          });
-          [
-            [-w * 0.3, -d * 0.3],
-            [-w * 0.3, d * 0.3],
-            [w * 0.3, -d * 0.3],
-            [w * 0.3, d * 0.3],
-          ].forEach(([x, z]) => {
-            const leg = new THREE.Mesh(legGeo, legMat);
-            leg.position.set(x, h * 0.125, z);
-            group.add(leg);
-          });
-
-          return group;
-        }
-
-        case "Table": {
-          const group = new THREE.Group();
-          const topGeo = new THREE.BoxGeometry(w, h * 0.1, d);
-          const topMat = new THREE.MeshStandardMaterial({
-            color: furnitureColorMap.Table,
-            roughness: 0.4,
-          });
-          const top = new THREE.Mesh(topGeo, topMat);
-          top.position.y = h * 0.9;
-          group.add(top);
-
-          // Legs
-          const legGeo = new THREE.BoxGeometry(w * 0.15, h * 0.8, d * 0.15);
-          const legMat = new THREE.MeshStandardMaterial({
-            color: "#654321",
-            roughness: 0.6,
-          });
-          [
-            [-w * 0.35, -d * 0.35],
-            [-w * 0.35, d * 0.35],
-            [w * 0.35, -d * 0.35],
-            [w * 0.35, d * 0.35],
-          ].forEach(([x, z]) => {
-            const leg = new THREE.Mesh(legGeo, legMat);
-            leg.position.set(x, h * 0.4, z);
-            group.add(leg);
-          });
-
-          return group;
-        }
-
-        case "TV": {
-          const group = new THREE.Group();
-          const bodyGeo = new THREE.BoxGeometry(w * 0.95, h * 0.95, d * 0.5);
-          const bodyMat = new THREE.MeshStandardMaterial({
-            color: "#111111",
-            roughness: 0.3,
-          });
-          const body = new THREE.Mesh(bodyGeo, bodyMat);
-          body.position.y = h * 0.5;
-          group.add(body);
-
-          // Screen
-          const screenGeo = new THREE.BoxGeometry(w * 0.9, h * 0.85, d * 0.1);
-          const screenMat = new THREE.MeshStandardMaterial({
-            color: "#0a0a0a",
-            emissive: "#1a1a1a",
-            roughness: 0.1,
-          });
-          const screen = new THREE.Mesh(screenGeo, screenMat);
-          screen.position.set(0, h * 0.5, d * 0.2);
-          group.add(screen);
-
-          // Stand
-          const standGeo = new THREE.BoxGeometry(w * 0.4, h * 0.3, d);
-          const standMat = new THREE.MeshStandardMaterial({
-            color: "#333333",
-            roughness: 0.5,
-          });
-          const stand = new THREE.Mesh(standGeo, standMat);
-          stand.position.y = h * 0.15;
-          group.add(stand);
-
-          return group;
-        }
-
-        case "Cabinet": {
-          const group = new THREE.Group();
-          const bodyGeo = new THREE.BoxGeometry(w, h, d);
-          const bodyMat = new THREE.MeshStandardMaterial({
-            color: furnitureColorMap.Cabinet,
-            roughness: 0.6,
-          });
-          const body = new THREE.Mesh(bodyGeo, bodyMat);
-          body.position.y = h * 0.5;
-          group.add(body);
-
-          // Doors
-          const doorGeo = new THREE.BoxGeometry(w * 0.45, h * 0.9, d * 0.05);
-          const doorMat = new THREE.MeshStandardMaterial({
-            color: "#6B3A1F",
-            roughness: 0.5,
-          });
-          const door1 = new THREE.Mesh(doorGeo, doorMat);
-          door1.position.set(-w * 0.25, h * 0.5, d * 0.48);
-          group.add(door1);
-          const door2 = door1.clone();
-          door2.position.x = w * 0.25;
-          group.add(door2);
-
-          return group;
-        }
-
-        default:
-          return new THREE.BoxGeometry(w, h, d);
+      if (item.assetType === "water_tank" || item.assetType === "WaterTank") {
+        return renderWaterTank(scene, item, false);
       }
+
+      return new THREE.BoxGeometry(w, h, d);
     };
 
-    console.log("🛋️ Furniture items to render:", furnitureItems.length);
+    console.log("📦 Items to render:", furnitureItems.length);
 
     furnitureItems.forEach((item, idx) => {
       const h = Math.max((item.height || 0.8) * METERS_TO_WORLD, 0.05);
-      const color =
-        item.metadata?.color || furnitureColorMap[item.assetType] || "#64748b";
+      const color = item.metadata?.color || "#64748b";
 
       console.log(
-        `📦 Furniture ${idx}: ${item.assetType} | Position: (${item.x}m, ${item.y}m) → (${(item.x * METERS_TO_WORLD).toFixed(2)}, ${(h / 2).toFixed(2)}, ${(item.y * METERS_TO_WORLD).toFixed(2)})`,
+        `📦 Item ${idx}: ${item.assetType} | Position: (${item.x}m, ${item.y}m) → (${(item.x * METERS_TO_WORLD).toFixed(2)}, ${(h / 2).toFixed(2)}, ${(item.y * METERS_TO_WORLD).toFixed(2)})`,
       );
 
-      // Create furniture geometry
-      const geom = createFurnitureGeometry(item);
+      // Create item geometry
+      const geom = createItemGeometry(item);
       let mesh: THREE.Object3D;
 
       if (geom instanceof THREE.Group) {

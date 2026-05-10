@@ -618,88 +618,7 @@ export default function CADEditor({
     loadFurnitureLibrary();
   }, [projectId]);
 
-  useEffect(() => {
-    const loadDoorLibrary = async () => {
-      try {
-        const res = await fetch(`/api/freecad/doors`);
-        if (res.ok) {
-          const data = await res.json();
-          const library = Array.isArray(data) ? data : [];
-          setDoorLibrary(library);
-          if (library.length > 0) {
-            setSelectedDoorModelUrl(library[0].raw_url || library[0].download_url);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load FreeCAD door library:", err);
-      }
-    };
-    loadDoorLibrary();
-  }, []);
 
-  useEffect(() => {
-    const loadWindowLibrary = async () => {
-      try {
-        const res = await fetch(`/api/freecad/windows`);
-        if (res.ok) {
-          const data = await res.json();
-          const library = Array.isArray(data) ? data : [];
-          setWindowLibrary(library);
-          if (library.length > 0) {
-            setSelectedWindowModelUrl(
-              (current) =>
-                current || library[0].raw_url || library[0].download_url,
-            );
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load FreeCAD window library:", err);
-      }
-    };
-    loadWindowLibrary();
-  }, []);
-
-  useEffect(() => {
-    const loadStairLibrary = async () => {
-      try {
-        const res = await fetch(`/api/freecad/stairs`);
-        if (res.ok) {
-          const data = await res.json();
-          const library = Array.isArray(data) ? data : [];
-          setStairLibrary(library);
-          if (library.length > 0) {
-            setSelectedStairModelUrl(
-              library[0].raw_url || library[0].download_url,
-            );
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load FreeCAD stair library:", err);
-      }
-    };
-    loadStairLibrary();
-  }, []);
-
-  useEffect(() => {
-    const loadFloorLibrary = async () => {
-      try {
-        const res = await fetch(`/api/freecad/floors`);
-        if (res.ok) {
-          const data = await res.json();
-          const library = Array.isArray(data) ? data : [];
-          setFloorLibrary(library);
-          if (library.length > 0) {
-            setSelectedFloorModelUrl(
-              library[0].raw_url || library[0].download_url,
-            );
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load FreeCAD floor library:", err);
-      }
-    };
-    loadFloorLibrary();
-  }, []);
 
   useEffect(() => {
     if (!selectedLevelId && levels.length > 0) {
@@ -2290,7 +2209,6 @@ export default function CADEditor({
                     onChange={(e) => setSelectedStairModelUrl(e.target.value)}
                     className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
                   >
-                    <option value="">Standard Stairs</option>
                     <option value="FLOATING_SWITCHBACK_V1">Floating Switchback</option>
                     <option value="SPIRAL_METAL_V1">Spiral Metal</option>
                     <option value="CONCRETE_PARAMETRIC_V1">Concrete Parametric</option>

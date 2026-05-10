@@ -1,129 +1,133 @@
 import * as THREE from "three";
-
-const MM_SCALE = 500;
+import { Stair } from "@/types/modeling";
 
 export const renderFloatingSwitchbackStairs = (
   scene: THREE.Scene,
-  px: number,
-  pz: number,
-  width: number,
-  height: number,
-  rotation: number = 0,
-  isSelected?: boolean,
-  color?: string,
+  stair: Stair,
+  isSelected: boolean
 ) => {
   const stairGroup = new THREE.Group();
-  stairGroup.rotation.y = (rotation * Math.PI) / 180;
 
-  // DIMENSIONS (translated to world units where 1m = 2 units)
-  const totalWidth = width / MM_SCALE;
-  const totalHeight = height / MM_SCALE;
-  
-  const treadWidth = (totalWidth - 0.2) / 2; // Split width between two flights with a gap
-  const flightGap = 0.2; 
-  const run = 0.3 * 2; // standard run ~300mm
-  const treadThick = 0.08;
-  
-  const lowerSteps = 10;
-  const upperSteps = 10;
-  const totalSteps = lowerSteps + upperSteps;
-  const stepRise = totalHeight / (totalSteps + 1);
+  // Parse parameters from metadata or use defaults
+  const m = stair.metadata || {};
+  const lower_steps = Math.max(1, Number(m.lower_steps ?? 9));
+  const upper_steps = Math.max(0, Number(m.upper_steps ?? 7));
+  const run = Number(m.run ?? 0.62);
+  const rise = Number(m.rise ?? 0.23);
+  const tread_len = Number(m.tread_len ?? 0.58);
+  const tread_width = Number(m.tread_width ?? 2.05);
+  const tread_thick = Number(m.tread_thick ?? 0.12);
+  const landing_len_x = Number(m.landing_len_x ?? 1.12);
+  const landing_overlap = Number(m.landing_overlap ?? 0.08);
+  const lower_y = Number(m.lower_y ?? 0.00); // mapped to Z in three.js
+  const upper_y = Number(m.upper_y ?? 2.35); // mapped to Z in three.js
+  const show_stringers = m.show_stringers !== false;
 
   const woodMat = new THREE.MeshStandardMaterial({
-    color: isSelected ? "#3b82f6" : (color || "#8B4513"),
-    roughness: 0.3,
-    metalness: 0.1,
+    color: isSelected ? "#3b82f6" : "#b56a2a",
+    roughness: 0.55,
     emissive: isSelected ? "#1d4ed8" : "#000000",
     emissiveIntensity: isSelected ? 0.3 : 0,
   });
 
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: "#a5d8ff",
-    transparent: true,
-    opacity: 0.3,
-    roughness: 0.05,
-    metalness: 0.1,
+  const darkWoodMat = new THREE.MeshStandardMaterial({
+    color: isSelected ? "#3b82f6" : "#8a4a1d",
+    roughness: 0.45,
   });
 
-  const metalMat = new THREE.MeshStandardMaterial({
-    color: "#2d2d2d",
-    metalness: 0.9,
-    roughness: 0.1,
-  });
+  // Helper to draw a box
+  const addBox = (w: number, h: number, d: number, px: number, py: number, pz: number, mat: THREE.Material) => {
+    const geom = new THREE.BoxGeometry(w, h, d);
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(px, py, pz);
+    stairGroup.add(mesh);
+  };
 
-  // 1. LOWER FLIGHT
-  const lowerFlightGroup = new THREE.Group();
-  for (let i = 0; i < lowerSteps; i++) {
-    const x = i * run;
-    const y = i * stepRise;
+  // Helper to draw a beam
+  const addBeam = (p0: THREE.Vector3, p1: THREE.Vector3, w: number, d: number, mat: THREE.Material) => {
+    const distance = p0.distanceTo(p1);
+    const geom = new THREE.BoxGeometry(w, d, distance);
+    const mesh = new THREE.Mesh(geom, mat);
     
-    // Tread
-    const treadGeom = new THREE.BoxGeometry(run, treadThick, treadWidth);
-    const tread = new THREE.Mesh(treadGeom, woodMat);
-    tread.position.set(x + run / 2, y, 0);
-    lowerFlightGroup.add(tread);
+    mesh.position.copy(p0).add(p1).multiplyScalar(0.5);
+    mesh.lookAt(p1);
+    stairGroup.add(mesh);
+  };
 
-    // Stringer (side support)
-    const stringerGeom = new THREE.BoxGeometry(run, 0.4, 0.05);
-    const leftStringer = new THREE.Mesh(stringerGeom, metalMat);
-    leftStringer.position.set(x + run / 2, y - 0.15, -treadWidth/2 - 0.025);
-    lowerFlightGroup.add(leftStringer);
+  // Lower flight
+  for (let i = 0; i < lower_steps; i++) {
+    const x = i * run;
+    const top_z = (i + 1) * rise;
+    const bottom_z = top_z - tread_thick;
+    
+    // In Three.js: y is up
+    addBox(
+      tread_len, tread_thick, tread_width,
+      x + tread_len/2, bottom_z + tread_thick/2, lower_y,
+      woodMat
+    );
   }
+
+  // Landing
+  const landing_x = lower_steps * run;
+  const landing_top_z = lower_steps * rise;
+  const landing_bottom_z = landing_top_z - tread_thick;
+
+  const landing_y0 = Math.min(lower_y, upper_y) - tread_width / 2.0;
+  const landing_y1 = Math.max(lower_y, upper_y) + tread_width / 2.0;
+  const landing_width_y = landing_y1 - landing_y0;
+  const landing_center_y = (landing_y0 + landing_y1) / 2;
+
+  addBox(
+    landing_len_x, tread_thick, landing_width_y,
+    landing_x - landing_overlap + landing_len_x/2, landing_bottom_z + tread_thick/2, landing_center_y,
+    woodMat
+  );
+
+  // Upper flight
+  for (let j = 0; j < upper_steps; j++) {
+    const x = landing_x - (j + 1) * run;
+    const top_z = landing_top_z + (j + 1) * rise;
+    const bottom_z = top_z - tread_thick;
+
+    addBox(
+      tread_len, tread_thick, tread_width,
+      x - tread_len/2, bottom_z + tread_thick/2, upper_y,
+      woodMat
+    );
+  }
+
+  // Stringers
+  if (show_stringers) {
+    // Lower
+    addBeam(
+      new THREE.Vector3(0.05, 0.02, lower_y - 0.82),
+      new THREE.Vector3(landing_x + 0.35, landing_bottom_z + 0.04, lower_y - 0.82),
+      0.13, 0.13, darkWoodMat
+    );
+    addBeam(
+      new THREE.Vector3(0.05, 0.02, lower_y + 0.82),
+      new THREE.Vector3(landing_x + 0.35, landing_bottom_z + 0.04, lower_y + 0.82),
+      0.13, 0.13, darkWoodMat
+    );
+
+    // Upper
+    if (upper_steps > 0) {
+      addBeam(
+        new THREE.Vector3(landing_x + 0.25, landing_bottom_z + 0.04, upper_y - 0.82),
+        new THREE.Vector3(landing_x - upper_steps * run - 0.10, landing_top_z + upper_steps * rise - tread_thick + 0.04, upper_y - 0.82),
+        0.13, 0.13, darkWoodMat
+      );
+      addBeam(
+        new THREE.Vector3(landing_x + 0.25, landing_bottom_z + 0.04, upper_y + 0.82),
+        new THREE.Vector3(landing_x - upper_steps * run - 0.10, landing_top_z + upper_steps * rise - tread_thick + 0.04, upper_y + 0.82),
+        0.13, 0.13, darkWoodMat
+      );
+    }
+  }
+
+  stairGroup.position.set(stair.position.x / 10, 0, stair.position.y / 10);
+  stairGroup.rotation.y = (stair.rotation || 0) * Math.PI / 180;
   
-  // Lower Flight Railing (Glass)
-  const lowerRailGeom = new THREE.BoxGeometry(lowerSteps * run, 0.9, 0.01);
-  const lowerRail = new THREE.Mesh(lowerRailGeom, glassMat);
-  lowerRail.position.set((lowerSteps * run) / 2, (lowerSteps * stepRise) / 2 + 0.5, -treadWidth/2 - 0.05);
-  lowerFlightGroup.add(lowerRail);
-
-  // Metal Cap for lower rail
-  const lowerCapGeom = new THREE.BoxGeometry(lowerSteps * run, 0.04, 0.04);
-  const lowerCap = new THREE.Mesh(lowerCapGeom, metalMat);
-  lowerCap.position.set((lowerSteps * run) / 2, lowerSteps * stepRise / 2 + 1.0, -treadWidth/2 - 0.05);
-  lowerFlightGroup.add(lowerCap);
-
-  lowerFlightGroup.position.set(0, 0, -treadWidth / 2 - flightGap / 2);
-  stairGroup.add(lowerFlightGroup);
-
-  // 2. LANDING
-  const landingWidth = 1.2 * 2;
-  const landingDepth = totalWidth;
-  const landingX = lowerSteps * run;
-  const landingY = lowerSteps * stepRise;
-
-  const landingGeom = new THREE.BoxGeometry(landingWidth, treadThick, landingDepth);
-  const landing = new THREE.Mesh(landingGeom, woodMat);
-  landing.position.set(landingX + landingWidth / 2, landingY, 0);
-  stairGroup.add(landing);
-
-  // 3. UPPER FLIGHT
-  const upperFlightGroup = new THREE.Group();
-  for (let i = 0; i < upperSteps; i++) {
-    const x = landingX - (i * run);
-    const y = landingY + (i + 1) * stepRise;
-
-    const treadGeom = new THREE.BoxGeometry(run, treadThick, treadWidth);
-    const tread = new THREE.Mesh(treadGeom, woodMat);
-    tread.position.set(x - run / 2, y, 0);
-    upperFlightGroup.add(tread);
-
-    // Stringer
-    const stringerGeom = new THREE.BoxGeometry(run, 0.4, 0.05);
-    const rightStringer = new THREE.Mesh(stringerGeom, metalMat);
-    rightStringer.position.set(x - run / 2, y - 0.15, treadWidth/2 + 0.025);
-    upperFlightGroup.add(rightStringer);
-  }
-
-  // Upper Flight Railing
-  const upperRailGeom = new THREE.BoxGeometry(upperSteps * run, 0.9, 0.01);
-  const upperRail = new THREE.Mesh(upperRailGeom, glassMat);
-  upperRail.position.set(landingX - (upperSteps * run) / 2, landingY + (upperSteps * stepRise) / 2 + 1.0, treadWidth/2 + 0.05);
-  upperFlightGroup.add(upperRail);
-
-  upperFlightGroup.position.set(0, 0, treadWidth / 2 + flightGap / 2);
-  stairGroup.add(upperFlightGroup);
-
-  // FINAL POSITIONING
-  stairGroup.position.set(px, 0, pz);
   scene.add(stairGroup);
 };

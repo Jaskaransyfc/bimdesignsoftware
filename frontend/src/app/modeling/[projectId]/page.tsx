@@ -728,53 +728,7 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                             value={stair.color || "#ffffff"}
                             onChange={(c) => handlePropertyUpdate("color", c)}
                           />
-                          {/* Width */}
-                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs text-slate-400 font-medium">Width</label>
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  value={stair.width}
-                                  min={600}
-                                  max={3000}
-                                  step={10}
-                                  onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
-                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
-                                />
-                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
-                              </div>
-                            </div>
-                            <input
-                              type="range" min={600} max={3000} step={10} value={stair.width}
-                              onChange={(e) => handlePropertyUpdate("width", Number(e.target.value))}
-                              className="w-full h-1 accent-indigo-500 cursor-pointer"
-                            />
-                          </div>
 
-                          {/* Height */}
-                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs text-slate-400 font-medium">Total Rise</label>
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  value={stair.height}
-                                  min={1000}
-                                  max={4000}
-                                  step={10}
-                                  onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
-                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
-                                />
-                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
-                              </div>
-                            </div>
-                            <input
-                              type="range" min={1000} max={4000} step={10} value={stair.height}
-                              onChange={(e) => handlePropertyUpdate("height", Number(e.target.value))}
-                              className="w-full h-1 accent-indigo-500 cursor-pointer"
-                            />
-                          </div>
 
                           {/* Rotation */}
                           <div className="space-y-1.5 pb-3 border-b border-slate-800">
@@ -800,102 +754,241 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                             />
                           </div>
 
-                          {/* Step Count */}
-                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs text-slate-400 font-medium">Step Count</label>
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  value={Number(stair.metadata?.number_of_steps || 8)}
-                                  min={1}
-                                  max={30}
-                                  step={1}
-                                  onChange={(e) => handleMetadataUpdate("number_of_steps", String(e.target.value))}
-                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
-                                />
-                                <span className="text-[10px] text-slate-500 font-mono w-6">qty</span>
-                              </div>
-                            </div>
-                            <input
-                              type="range" min={1} max={30} step={1} value={Number(stair.metadata?.number_of_steps || 8)}
-                              onChange={(e) => handleMetadataUpdate("number_of_steps", String(e.target.value))}
-                              className="w-full h-1 accent-indigo-500 cursor-pointer"
-                            />
-                          </div>
+                          {/* Common Base Stair Properties based on style */}
+                          {(() => {
+                            const style = (stair.metadata?.stair_style || stair.metadata?.stairStyle || "").toLowerCase();
+                            const isFloating = style === "floating_switchback" || stair.metadata?.stair_model_url === "FLOATING_SWITCHBACK_V1";
+                            const isSpiral = style === "spiral_metal" || stair.metadata?.stair_model_url === "SPIRAL_METAL_V1";
 
-                          {/* Tread Depth */}
-                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs text-slate-400 font-medium">Tread Depth</label>
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  value={Number(stair.metadata?.tread_depth || 0.42) * 1000}
-                                  min={200}
-                                  max={600}
-                                  step={10}
-                                  onChange={(e) => handleMetadataUpdate("tread_depth", String(Number(e.target.value) / 1000))}
-                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
-                                />
-                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
-                              </div>
-                            </div>
-                            <input
-                              type="range" min={200} max={600} step={10} value={Number(stair.metadata?.tread_depth || 0.42) * 1000}
-                              onChange={(e) => handleMetadataUpdate("tread_depth", String(Number(e.target.value) / 1000))}
-                              className="w-full h-1 accent-indigo-500 cursor-pointer"
-                            />
-                          </div>
+                            if (isFloating) {
+                              return (
+                                <>
+                                  {/* Lower Steps */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Lower Steps</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number"
+                                          value={Number(stair.metadata?.lower_steps ?? 9)}
+                                          min={1} max={20}
+                                          onChange={(e) => handleMetadataUpdate("lower_steps", e.target.value)}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                    <input type="range" min={1} max={20} step={1} value={Number(stair.metadata?.lower_steps ?? 9)} onChange={(e) => handleMetadataUpdate("lower_steps", e.target.value)} className="w-full h-1 accent-indigo-500 cursor-pointer" />
+                                  </div>
 
-                          {/* Rise Height */}
-                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs text-slate-400 font-medium">Rise Height</label>
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  value={Number(stair.metadata?.rise_height || 0.22) * 1000}
-                                  min={100}
-                                  max={300}
-                                  step={5}
-                                  onChange={(e) => handleMetadataUpdate("rise_height", String(Number(e.target.value) / 1000))}
-                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
-                                />
-                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
-                              </div>
-                            </div>
-                            <input
-                              type="range" min={100} max={300} step={5} value={Number(stair.metadata?.rise_height || 0.22) * 1000}
-                              onChange={(e) => handleMetadataUpdate("rise_height", String(Number(e.target.value) / 1000))}
-                              className="w-full h-1 accent-indigo-500 cursor-pointer"
-                            />
-                          </div>
+                                  {/* Upper Steps */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Upper Steps</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number"
+                                          value={Number(stair.metadata?.upper_steps ?? 7)}
+                                          min={0} max={20}
+                                          onChange={(e) => handleMetadataUpdate("upper_steps", e.target.value)}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                    <input type="range" min={0} max={20} step={1} value={Number(stair.metadata?.upper_steps ?? 7)} onChange={(e) => handleMetadataUpdate("upper_steps", e.target.value)} className="w-full h-1 accent-indigo-500 cursor-pointer" />
+                                  </div>
 
-                          {/* Landing Depth */}
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs text-slate-400 font-medium">Landing Depth</label>
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  value={Number(stair.metadata?.landing_depth || 0.65) * 1000}
-                                  min={300}
-                                  max={2000}
-                                  step={50}
-                                  onChange={(e) => handleMetadataUpdate("landing_depth", String(Number(e.target.value) / 1000))}
-                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
-                                />
-                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
-                              </div>
-                            </div>
-                            <input
-                              type="range" min={300} max={2000} step={50} value={Number(stair.metadata?.landing_depth || 0.65) * 1000}
-                              onChange={(e) => handleMetadataUpdate("landing_depth", String(Number(e.target.value) / 1000))}
-                              className="w-full h-1 accent-indigo-500 cursor-pointer"
-                            />
-                          </div>
+                                  {/* Run (m) */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Run (m)</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number" step="0.01"
+                                          value={Number(stair.metadata?.run ?? 0.62)}
+                                          min={0.2} max={1.5}
+                                          onChange={(e) => handleMetadataUpdate("run", e.target.value)}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                    <input type="range" min={0.2} max={1.5} step={0.01} value={Number(stair.metadata?.run ?? 0.62)} onChange={(e) => handleMetadataUpdate("run", e.target.value)} className="w-full h-1 accent-indigo-500 cursor-pointer" />
+                                  </div>
 
+                                  {/* Rise (m) */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Rise (m)</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number" step="0.01"
+                                          value={Number(stair.metadata?.rise ?? 0.23)}
+                                          min={0.1} max={0.4}
+                                          onChange={(e) => handleMetadataUpdate("rise", e.target.value)}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                    <input type="range" min={0.1} max={0.4} step={0.01} value={Number(stair.metadata?.rise ?? 0.23)} onChange={(e) => handleMetadataUpdate("rise", e.target.value)} className="w-full h-1 accent-indigo-500 cursor-pointer" />
+                                  </div>
+                                </>
+                              );
+                            } else if (isSpiral) {
+                              return (
+                                <>
+                                  {/* Step Count */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Step Count</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number"
+                                          value={Number(stair.metadata?.step_count ?? 15)}
+                                          min={1} max={50}
+                                          onChange={(e) => handleMetadataUpdate("step_count", e.target.value)}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                    <input type="range" min={1} max={50} step={1} value={Number(stair.metadata?.step_count ?? 15)} onChange={(e) => handleMetadataUpdate("step_count", e.target.value)} className="w-full h-1 accent-indigo-500 cursor-pointer" />
+                                  </div>
+
+                                  {/* Rise (m) */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Rise (m)</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number" step="0.01"
+                                          value={Number(stair.metadata?.rise ?? 0.23)}
+                                          min={0.1} max={0.4}
+                                          onChange={(e) => handleMetadataUpdate("rise", e.target.value)}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                    <input type="range" min={0.1} max={0.4} step={0.01} value={Number(stair.metadata?.rise ?? 0.23)} onChange={(e) => handleMetadataUpdate("rise", e.target.value)} className="w-full h-1 accent-indigo-500 cursor-pointer" />
+                                  </div>
+
+                                  {/* Outer Tread Radius (m) */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Outer Radius (m)</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number" step="0.05"
+                                          value={Number(stair.metadata?.outer_tread_radius ?? 1.00)}
+                                          min={0.5} max={3.0}
+                                          onChange={(e) => handleMetadataUpdate("outer_tread_radius", e.target.value)}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                    <input type="range" min={0.5} max={3.0} step={0.05} value={Number(stair.metadata?.outer_tread_radius ?? 1.00)} onChange={(e) => handleMetadataUpdate("outer_tread_radius", e.target.value)} className="w-full h-1 accent-indigo-500 cursor-pointer" />
+                                  </div>
+                                </>
+                              );
+                            } else {
+                              return (
+                                <>
+                                  {/* Step Count */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Step Count</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number"
+                                          value={Number(stair.metadata?.number_of_steps || 8)}
+                                          min={1}
+                                          max={30}
+                                          step={1}
+                                          onChange={(e) => handleMetadataUpdate("number_of_steps", String(e.target.value))}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                        <span className="text-[10px] text-slate-500 font-mono w-6">qty</span>
+                                      </div>
+                                    </div>
+                                    <input
+                                      type="range" min={1} max={30} step={1} value={Number(stair.metadata?.number_of_steps || 8)}
+                                      onChange={(e) => handleMetadataUpdate("number_of_steps", String(e.target.value))}
+                                      className="w-full h-1 accent-indigo-500 cursor-pointer"
+                                    />
+                                  </div>
+
+                                  {/* Tread Depth */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Tread Depth</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number"
+                                          value={Number(stair.metadata?.tread_depth || 0.42) * 1000}
+                                          min={200}
+                                          max={600}
+                                          step={10}
+                                          onChange={(e) => handleMetadataUpdate("tread_depth", String(Number(e.target.value) / 1000))}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                        <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                                      </div>
+                                    </div>
+                                    <input
+                                      type="range" min={200} max={600} step={10} value={Number(stair.metadata?.tread_depth || 0.42) * 1000}
+                                      onChange={(e) => handleMetadataUpdate("tread_depth", String(Number(e.target.value) / 1000))}
+                                      className="w-full h-1 accent-indigo-500 cursor-pointer"
+                                    />
+                                  </div>
+
+                                  {/* Rise Height */}
+                                  <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Rise Height</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number"
+                                          value={Number(stair.metadata?.rise_height || 0.22) * 1000}
+                                          min={100}
+                                          max={300}
+                                          step={5}
+                                          onChange={(e) => handleMetadataUpdate("rise_height", String(Number(e.target.value) / 1000))}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                        <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                                      </div>
+                                    </div>
+                                    <input
+                                      type="range" min={100} max={300} step={5} value={Number(stair.metadata?.rise_height || 0.22) * 1000}
+                                      onChange={(e) => handleMetadataUpdate("rise_height", String(Number(e.target.value) / 1000))}
+                                      className="w-full h-1 accent-indigo-500 cursor-pointer"
+                                    />
+                                  </div>
+
+                                  {/* Landing Depth */}
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs text-slate-400 font-medium">Landing Depth</label>
+                                      <div className="flex items-center gap-1.5">
+                                        <input
+                                          type="number"
+                                          value={Number(stair.metadata?.landing_depth || 0.65) * 1000}
+                                          min={300}
+                                          max={2000}
+                                          step={50}
+                                          onChange={(e) => handleMetadataUpdate("landing_depth", String(Number(e.target.value) / 1000))}
+                                          className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                        />
+                                        <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                                      </div>
+                                    </div>
+                                    <input
+                                      type="range" min={300} max={2000} step={50} value={Number(stair.metadata?.landing_depth || 0.65) * 1000}
+                                      onChange={(e) => handleMetadataUpdate("landing_depth", String(Number(e.target.value) / 1000))}
+                                      className="w-full h-1 accent-indigo-500 cursor-pointer"
+                                    />
+                                  </div>
+                                </>
+                              );
+                            }
+                          })()}
                         </>
                       );
                     })()}
