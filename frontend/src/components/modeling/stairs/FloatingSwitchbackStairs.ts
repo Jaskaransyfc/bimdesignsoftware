@@ -126,7 +126,9 @@ export const renderFloatingSwitchbackStairs = (
     }
   }
 
-  stairGroup.position.set(stair.position.x / 10, 0, stair.position.y / 10);
+  const px = stair.position?.x ?? (stair as any).x ?? 0;
+  const py = stair.position?.y ?? (stair as any).y ?? 0;
+  stairGroup.position.set(px / 10, 0, py / 10);
   stairGroup.rotation.y = (stair.rotation || 0) * Math.PI / 180;
   
   scene.add(stairGroup);

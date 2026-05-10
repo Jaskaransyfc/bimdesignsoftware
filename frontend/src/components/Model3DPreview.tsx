@@ -32,7 +32,26 @@ import {
   renderSpiralMetalStairs,
   renderConcreteParametricStairs,
 } from "./modeling/stairs";
-import { renderWaterTank } from "./modeling/items";
+import { 
+  renderWaterTank,
+  renderSofa3Seater,
+  renderCenterTable,
+  renderDoubleBed,
+  renderWallPainting,
+  renderSofa1Seater,
+  renderSingleBed,
+  renderDiningTable,
+  renderTVPanel,
+  renderCeilingFan,
+  renderModularKitchenL,
+  renderKitchenSingleWall,
+  renderCoveCeiling,
+  renderGeometricCeiling,
+  renderCarpet,
+  renderIndianCoveCeiling,
+  renderFloatingCoveCeiling,
+  renderWoodenPanelCeiling
+} from "./modeling/items";
 import {
   renderSlidingGlassWindow,
   renderProceduralWindow,
@@ -1342,9 +1361,44 @@ export default function Model3DPreview({
       const w = Math.max((item.width || 1) * METERS_TO_WORLD, 0.05);
       const d = Math.max((item.depth || 1) * METERS_TO_WORLD, 0.05);
       const h = Math.max((item.height || 0.8) * METERS_TO_WORLD, 0.05);
+      const isSelected = selectedElementId === item.id;
 
       if (item.assetType === "water_tank" || item.assetType === "WaterTank") {
-        return renderWaterTank(scene, item, false);
+        return renderWaterTank(scene, item, isSelected);
+      } else if (item.assetType === "SOFA_3_SEATER_V1") {
+        return renderSofa3Seater(scene, item, isSelected);
+      } else if (item.assetType === "CENTER_TABLE_V1") {
+        return renderCenterTable(scene, item, isSelected);
+      } else if (item.assetType === "DOUBLE_BED_V1") {
+        return renderDoubleBed(scene, item, isSelected);
+      } else if (item.assetType === "WALL_PAINTING_V1") {
+        return renderWallPainting(scene, item, isSelected);
+      } else if (item.assetType === "SOFA_1_SEATER_V1") {
+        return renderSofa1Seater(scene, item, isSelected);
+      } else if (item.assetType === "SINGLE_BED_V1") {
+        return renderSingleBed(scene, item, isSelected);
+      } else if (item.assetType === "DINING_TABLE_V1") {
+        return renderDiningTable(scene, item, isSelected);
+      } else if (item.assetType === "TV_PANEL_V1") {
+        return renderTVPanel(scene, item, isSelected);
+      } else if (item.assetType === "CEILING_FAN_V1") {
+        return renderCeilingFan(scene, item, isSelected);
+      } else if (item.assetType === "MODULAR_KITCHEN_L_V1") {
+        return renderModularKitchenL(scene, item, isSelected);
+      } else if (item.assetType === "KITCHEN_SINGLE_WALL_V1") {
+        return renderKitchenSingleWall(scene, item, isSelected);
+      } else if (item.assetType === "COVE_CEILING_V1") {
+        return renderCoveCeiling(scene, item, isSelected);
+      } else if (item.assetType === "GEOMETRIC_CEILING_V1") {
+        return renderGeometricCeiling(scene, item, isSelected);
+      } else if (item.assetType === "CARPET_V1") {
+        return renderCarpet(scene, item, isSelected);
+      } else if (item.assetType === "INDIAN_COVE_CEILING_V1") {
+        return renderIndianCoveCeiling(scene, item, isSelected);
+      } else if (item.assetType === "FLOATING_COVE_CEILING_V1") {
+        return renderFloatingCoveCeiling(scene, item, isSelected);
+      } else if (item.assetType === "WOODEN_PANEL_CEILING_V1") {
+        return renderWoodenPanelCeiling(scene, item, isSelected);
       }
 
       return new THREE.BoxGeometry(w, h, d);
@@ -1381,7 +1435,25 @@ export default function Model3DPreview({
         kind: "furniture",
         id: item.id,
       };
-      snapObjectToGround(mesh);
+
+      const isCeilingItem = item.assetType.includes("CEILING") || item.assetType.includes("FAN");
+      if (isCeilingItem) {
+        let maxWallHeight = 3.0; // Default 3000mm
+        if (model3D.walls && model3D.walls.length > 0) {
+          maxWallHeight = Math.max(...model3D.walls.map(w => w.height / MM_SCALE));
+        }
+        
+        // Ensure object bounds are calculated
+        mesh.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(mesh);
+        if (!box.isEmpty()) {
+          // Snap the TOP of the object to the ceiling height
+          mesh.position.y += (maxWallHeight - box.max.y);
+        }
+      } else {
+        snapObjectToGround(mesh);
+      }
+
       scene.add(mesh);
       interactiveObjects.push(mesh);
 

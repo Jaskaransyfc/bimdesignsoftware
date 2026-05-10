@@ -154,7 +154,9 @@ export const renderSpiralMetalStairs = (
   topCollar.position.set(0, total_height - 0.14, 0);
   group.add(topCollar);
 
-  group.position.set(stair.position.x / 10, 0, stair.position.y / 10);
+  const px = stair.position?.x ?? (stair as any).x ?? 0;
+  const py = stair.position?.y ?? (stair as any).y ?? 0;
+  group.position.set(px / 10, 0, py / 10);
   group.rotation.y = (stair.rotation || 0) * Math.PI / 180;
   
   scene.add(group);
