@@ -1,8 +1,6 @@
 import * as THREE from "three";
 import { Window, Wall } from "@/types/modeling";
 
-const MM_SCALE = 500;
-
 export const renderProceduralWindow = (
   scene: THREE.Scene,
   px: number,
@@ -16,66 +14,45 @@ export const renderProceduralWindow = (
   selectedElementId?: string | null,
 ) => {
   const isSelected = selectedElementId === window_.id;
-  // Window frame (simplified as a hollow border using 4 boxes)
-  const fT = 0.1; // frame thickness
-  const frameThickness = hostWall
-    ? hostWall.thickness / MM_SCALE + 0.02
-    : 0.48;
+  const fw = 0.06;
+  const wallThickness = hostWall ? hostWall.thickness / 500 : 0.4;
+  const D = wallThickness + 0.05;
+
+  const materials = {
+    frame: new THREE.MeshStandardMaterial({ color: 0x2C3E50, metalness: 0.4, roughness: 0.3 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0xA9CCE3, transparent: true, opacity: 0.35, metalness: 0.6, roughness: 0.1 }),
+    sill: new THREE.MeshStandardMaterial({ color: 0xBDC3C7, roughness: 0.9, metalness: 0.1 }),
+    selected: new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.5 }),
+  };
+
+  const frameMat = isSelected ? materials.selected : materials.frame;
+  const glassMat = isSelected ? materials.selected : materials.glass;
+
   const winFrame = new THREE.Group();
 
-  const highlightFrameMaterial = new THREE.MeshStandardMaterial({
-    color: isSelected ? "#3b82f6" : (window_.color || "#475569"),
-    roughness: 0.8,
-    emissive: isSelected ? "#1d4ed8" : "#000000",
-    emissiveIntensity: isSelected ? 0.5 : 0,
-  });
+  // 1. RECTANGULAR FRAME
+  const addFramePart = (w: number, h: number, d: number, px: number, py: number, pz: number) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), frameMat);
+    mesh.position.set(px, py, pz);
+    winFrame.add(mesh);
+  };
 
-  const top = new THREE.Mesh(
-    new THREE.BoxGeometry(winW + fT, fT, frameThickness),
-    highlightFrameMaterial,
-  );
-  top.position.y = winH / 2 + fT / 2;
+  addFramePart(winW, fw, D, 0, -winH/2 + fw/2, 0);
+  addFramePart(winW, fw, D, 0, winH/2 - fw/2, 0);
+  addFramePart(fw, winH - 2*fw, D, -winW/2 + fw/2, 0, 0);
+  addFramePart(fw, winH - 2*fw, D, winW/2 - fw/2, 0, 0);
 
-  const bottom = new THREE.Mesh(
-    new THREE.BoxGeometry(winW + fT, fT, frameThickness),
-    highlightFrameMaterial,
-  );
-  bottom.position.y = -winH / 2 - fT / 2;
+  // 2. STONE SILL
+  const sill = new THREE.Mesh(new THREE.BoxGeometry(winW + 0.1, 0.04, wallThickness * 0.6), materials.sill);
+  sill.position.set(0, -winH/2 - 0.02, wallThickness/2 + 0.02);
+  winFrame.add(sill);
 
-  const left = new THREE.Mesh(
-    new THREE.BoxGeometry(fT, winH, frameThickness),
-    highlightFrameMaterial,
-  );
-  left.position.x = -winW / 2 - fT / 2;
-
-  const right = new THREE.Mesh(
-    new THREE.BoxGeometry(fT, winH, frameThickness),
-    highlightFrameMaterial,
-  );
-  right.position.x = winW / 2 + fT / 2;
-
-  winFrame.add(top, bottom, left, right);
+  // 3. GLASS
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(winW - 2*fw, winH - 2*fw, 0.01), glassMat);
+  winFrame.add(glass);
 
   winFrame.position.set(px, sillHeight + winH / 2, pz);
   if (vectors)
     winFrame.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
   scene.add(winFrame);
-
-  const glass = new THREE.Mesh(
-    new THREE.BoxGeometry(winW - 0.05, winH - 0.05, 0.1),
-    new THREE.MeshStandardMaterial({
-      color: isSelected ? "#3b82f6" : "#7dd3fc",
-      transparent: true,
-      opacity: 0.5,
-      roughness: 0.2,
-      metalness: 0.15,
-      emissive: isSelected ? "#1d4ed8" : "#000000",
-      emissiveIntensity: isSelected ? 0.3 : 0,
-    }),
-  );
-  glass.position.set(px, sillHeight + winH / 2, pz);
-  if (vectors) {
-    glass.rotation.y = -Math.atan2(vectors.dir.z, vectors.dir.x);
-  }
-  scene.add(glass);
 };

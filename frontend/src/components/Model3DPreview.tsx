@@ -32,7 +32,7 @@ import {
   renderSpiralMetalStairs,
   renderConcreteParametricStairs,
 } from "./modeling/stairs";
-import { 
+import {
   renderWaterTank,
   renderSofa3Seater,
   renderCenterTable,
@@ -56,6 +56,13 @@ import {
   renderSlidingGlassWindow,
   renderProceduralWindow,
   renderDoubleCasementTransomWindow,
+  renderTripleCasementWindow,
+  renderCircularWindow,
+  renderTriangleWindow,
+  renderPatternWindow,
+  renderOvalWindow,
+  renderCurvedWindow,
+  renderSemiCurvedWindow
 } from "./modeling/windows";
 import {
   renderMarbleVitrifiedFloor,
@@ -64,8 +71,10 @@ import {
   renderLuxuryStoneFloor,
   renderCheckerCeramicFloor,
 } from "./modeling/floors";
+import { renderRailing } from "./modeling/railings/RailingRenderer";
 import { convert2DTo3D } from "@/lib/geometry3d";
 import { renderWoodenSlatWall, renderStandardBIMWall } from "./modeling/walls";
+import { renderPartitionWall } from "./modeling/partitions/PartitionWallRenderer";
 import { Door, Element, FurnitureItem, Window, Wall } from "@/types/modeling";
 
 interface Model3DPreviewProps {
@@ -514,7 +523,7 @@ export default function Model3DPreview({
       const len = Math.hypot(dx, dz) || 1;
       const dir = { x: dx / len, z: dz / len };
       const normal = { x: -dir.z, z: dir.x };
-      return { dir, normal };
+      return { dir, normal, wallUnitX: dir.x, wallUnitY: dir.z };
     };
 
     const projectOpeningCenterToWall = (
@@ -620,15 +629,23 @@ export default function Model3DPreview({
 
           const sillH =
             (op.type === "window"
-              ? (op as any).position?.z ?? (op as any).sillHeight ?? 1000
+              ? (op as any).position?.z ?? (op as any).sillHeight ?? 900
               : 0) / MM_SCALE;
 
           const xStart = distAlongWall - opW / 2;
+          const style = (op as any).metadata?.windowStyle || "";
+
+          // CLAMP TO WALL HEIGHT
+          const wallH = height;
+          const clampedSillH = Math.max(0, Math.min(wallH - 0.1, sillH));
+          const clampedOpH = Math.min(opH, wallH - clampedSillH);
+
           return {
             minX: xStart,
             maxX: xStart + opW,
-            height: opH,
-            sillHeight: sillH,
+            height: clampedOpH,
+            sillHeight: clampedSillH,
+            style: style.toLowerCase(),
           };
         });
 
@@ -648,6 +665,30 @@ export default function Model3DPreview({
           isSelected,
           wall.color
         );
+      } else if (
+        [
+          "Clear Glass Partition",
+          "Frosted Glass Partition",
+          "Etched Pattern Glass",
+          "Gradient Frosted Glass",
+          "Cracked Ice Glass",
+          "Digital Printed Glass",
+          "Natural Oak Slats",
+          "Walnut Wood Slats",
+          "Charred Wood",
+        ].includes(wall.material)
+      ) {
+        material = renderPartitionWall(
+          scene,
+          wall,
+          dx,
+          dy,
+          length,
+          thickness,
+          height,
+          processedOpenings,
+          isSelected
+        );
       } else {
         material = renderStandardBIMWall(
           scene,
@@ -663,9 +704,9 @@ export default function Model3DPreview({
         );
       }
 
-      // Add corner fillers (columns) to hide gaps between walls
-      const fillerGeom = new THREE.BoxGeometry(thickness, height, thickness);
-      const fillerMat = material;
+      // Add corner fillers (cylinders) to hide gaps between walls at angles
+      const fillerGeom = new THREE.CylinderGeometry(thickness / 2, thickness / 2, height, 16);
+      const fillerMat = material || new THREE.MeshStandardMaterial({ color: "#ffffff" });
 
       const startFiller = new THREE.Mesh(fillerGeom, fillerMat);
       startFiller.position.set(
@@ -737,8 +778,10 @@ export default function Model3DPreview({
 
     model3D.doors.forEach((door) => {
       const doorW = Math.max(door.width / MM_SCALE, 0.1);
-      const doorH = Math.max(door.height / MM_SCALE, 0.1);
+      const rawDoorH = Math.max(door.height / MM_SCALE, 0.1);
       const hostWall = door.wallId ? wallById.get(door.wallId) : undefined;
+      const wallHeight = hostWall ? hostWall.height / MM_SCALE : 3.0;
+      const doorH = Math.min(rawDoorH, wallHeight);
       const vectors = hostWall ? getWallVectors(hostWall) : null;
 
       const element = doorById.get(door.id);
@@ -1052,14 +1095,20 @@ export default function Model3DPreview({
 
     model3D.windows.forEach((window_) => {
       const winW = Math.max(window_.width / MM_SCALE, 0.1);
-      const winH = Math.max(window_.height / MM_SCALE, 0.1);
-      const hostWall = window_.wallId
-        ? wallById.get(window_.wallId)
-        : undefined;
+      const hostWall = window_.wallId ? wallById.get(window_.wallId) : undefined;
       const vectors = hostWall ? getWallVectors(hostWall) : null;
-      const sillHeight =
-        ((window_ as any).position?.z ?? (window_ as any).sillHeight ?? 1000) /
+      const wallHeight = hostWall ? hostWall.height / MM_SCALE : 3.0;
+
+      const rawSillHeight =
+        ((window_ as any).position?.z ?? (window_ as any).sillHeight ?? 900) /
         MM_SCALE;
+
+      // CLAMP WINDOW TO WALL HEIGHT
+      const sillHeight = Math.max(0, Math.min(wallHeight - 0.1, rawSillHeight));
+      const winH = Math.min(
+        Math.max(window_.height / MM_SCALE, 0.1),
+        wallHeight - sillHeight,
+      );
 
       const frameMaterial = new THREE.MeshStandardMaterial({
         color: "#475569",
@@ -1082,17 +1131,58 @@ export default function Model3DPreview({
         const isSliding = windowStyle === "sliding";
         const isDoubleCasement = windowStyle === "double_casement_transom";
 
-        if (isDoubleCasement) {
+        if (windowStyle === "double_casement_transom") {
           renderDoubleCasementTransomWindow(
-            scene,
-            px,
-            pz,
-            vectors,
-            winW,
-            winH,
-            sillHeight,
-            hostWall,
-            selectedElementId === window_.id,
+            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+          );
+          return;
+        }
+        
+        if (windowStyle === "triple_casement") {
+          renderTripleCasementWindow(
+            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+          );
+          return;
+        }
+
+        if (windowStyle === "circular_fixed") {
+          renderCircularWindow(
+            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+          );
+          return;
+        }
+
+        if (windowStyle === "triangle_casement") {
+          renderTriangleWindow(
+            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+          );
+          return;
+        }
+
+        if (windowStyle === "pattern_arch") {
+          renderPatternWindow(
+            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+          );
+          return;
+        }
+
+        if (windowStyle === "oval_grille") {
+          renderOvalWindow(
+            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+          );
+          return;
+        }
+
+        if (windowStyle === "curved_arch") {
+          renderCurvedWindow(
+            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+          );
+          return;
+        }
+
+        if (windowStyle === "semi_curved_grille") {
+          renderSemiCurvedWindow(
+            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
           );
           return;
         }
@@ -1236,6 +1326,13 @@ export default function Model3DPreview({
 
       drawWindow();
     });
+
+    // --- RENDER RAILINGS ---
+    elements
+      .filter((el) => el.type === "railing")
+      .forEach((railing: any) => {
+        renderRailing(scene, railing, selectedElementId === railing.id);
+      });
 
     // --- RENDER FLOORS ---
     elements
@@ -1442,7 +1539,7 @@ export default function Model3DPreview({
         if (model3D.walls && model3D.walls.length > 0) {
           maxWallHeight = Math.max(...model3D.walls.map(w => w.height / MM_SCALE));
         }
-        
+
         // Ensure object bounds are calculated
         mesh.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(mesh);

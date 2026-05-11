@@ -29,15 +29,41 @@ export const renderStandardBIMWall = (
     const hole = new THREE.Path();
     const clampedStart = Math.max(0, Math.min(length, op.minX));
     const clampedEnd = Math.max(0, Math.min(length, op.maxX));
+    const opW = op.maxX - op.minX;
     const opH = op.height;
     const sillH = op.sillHeight || 0;
+    const style = op.style || "";
 
-    // Draw hole Clockwise (CW) -> oriented opposite to the outer shape (CCW)
-    hole.moveTo(clampedStart, sillH);
-    hole.lineTo(clampedStart, sillH + opH);
-    hole.lineTo(clampedEnd, sillH + opH);
-    hole.lineTo(clampedEnd, sillH);
-    hole.closePath();
+    const centerX = op.minX + opW / 2;
+    const centerY = sillH + opH / 2;
+
+    if (style === "circular_fixed") {
+      const radius = Math.min(opW, opH) / 2;
+      hole.absellipse(centerX, centerY, radius, radius, 0, Math.PI * 2, true);
+    } else if (style === "triangle_casement") {
+      hole.moveTo(op.minX, sillH);
+      hole.lineTo(centerX, sillH + opH);
+      hole.lineTo(op.maxX, sillH);
+      hole.closePath();
+    } else if (style === "pattern_arch" || style === "curved_arch" || style === "semi_curved_grille") {
+      // Arched top: Rectangle from sillH to (sillH + opH - opW/2) + Semicircle top
+      const radius = opW / 2;
+      const rectHeight = Math.max(0, opH - radius);
+      hole.moveTo(op.minX, sillH);
+      hole.lineTo(op.minX, sillH + rectHeight);
+      hole.absarc(centerX, sillH + rectHeight, radius, Math.PI, 0, false);
+      hole.lineTo(op.maxX, sillH);
+      hole.closePath();
+    } else if (style === "oval_grille") {
+      hole.absellipse(centerX, centerY, opW / 2, opH / 2, 0, Math.PI * 2, true);
+    } else {
+      // Default rectangular hole
+      hole.moveTo(clampedStart, sillH);
+      hole.lineTo(clampedStart, sillH + opH);
+      hole.lineTo(clampedEnd, sillH + opH);
+      hole.lineTo(clampedEnd, sillH);
+      hole.closePath();
+    }
     shape.holes.push(hole);
   });
 

@@ -16,31 +16,8 @@ export type ElementType =
   | "text"
   | "line"
   | "arc"
-  | "beam"
-  | "stairs"
-  | "floor";
-
-export interface Stair {
-  id: string;
-  type: "stairs";
-  position: Point2D;
-  width: number;
-  height: number;
-  rotation?: number; // degrees
-  color?: string;
-  metadata?: any;
-}
-
-export interface Floor {
-  id: string;
-  type: "floor";
-  position: Point2D;
-  width: number;
-  depth: number;
-  rotation?: number;
-  color?: string;
-  metadata?: any;
-}
+  | "column"
+  | "beam";
 
 export interface Point2D {
   x: number;
@@ -64,6 +41,7 @@ export interface Wall {
   fireRating?: string;
   color?: string;
   levelId?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface Door {
@@ -77,9 +55,9 @@ export interface Door {
   wallId?: string; // Reference to parent wall
   orientation: number; // rotation in degrees
   material?: string;
-  color?: string;
   fireRating?: string;
   openingSide?: "inside" | "outside";
+  metadata?: Record<string, any>;
 }
 
 export interface Window {
@@ -92,8 +70,8 @@ export interface Window {
   levelId?: string;
   orientation: number;
   material?: string;
-  color?: string;
   glazing?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface Room {
@@ -153,8 +131,6 @@ export type Element =
   | Room
   | Dimension
   | TextElement
-  | Stair
-  | Floor
   | DrawingElement;
 
 // ─────────────────────────────────────────────────────────
@@ -197,7 +173,6 @@ export interface WallGeometry3D {
   thickness: number;
   height: number;
   material: string;
-  color?: string;
   levelId?: string;
 }
 
@@ -219,7 +194,6 @@ export interface DoorGeometry3D {
   height: number;
   swingDirection: string;
   wallId: string;
-  color?: string;
 }
 
 export interface WindowGeometry3D {
@@ -228,7 +202,6 @@ export interface WindowGeometry3D {
   width: number;
   height: number;
   wallId: string;
-  color?: string;
 }
 
 export interface RoomGeometry3D {
@@ -279,8 +252,6 @@ export type ToolType =
   | "erase"
   | "pan"
   | "zoom"
-  | "stairs"
-  | "floor"
   | "furniture";
 
 export interface DrawingToolState {
