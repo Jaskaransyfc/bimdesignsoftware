@@ -17,15 +17,19 @@ import {
   Wall,
   Door,
   Window,
+  Room,
   Dimension,
   TextElement,
   Point2D,
   ToolType,
   Level,
   FurnitureItem,
+  Stair,
   Floor,
   Railing,
   Roof,
+  ElectricalFixture,
+  Polyline,
 } from "@/types/modeling";
 import {
   Plus,
@@ -54,6 +58,15 @@ interface CADEditorProps {
   onSelectionChange?: (element: Element | null) => void;
   initialElements?: Element[];
 }
+
+type DoorSelectionData = {
+  width_mm: number;
+  height_mm: number;
+  swingDirection: Door["swingDirection"];
+  openingSide?: Door["openingSide"];
+  material: string;
+  fireRating?: string;
+};
 
 const GRID_SIZE = 20; // pixels per grid square
 const MM_TO_CANVAS = 50;
@@ -175,8 +188,7 @@ const deriveStairPreset = (source?: string | null) => {
   const raw = String(source || "").toLowerCase();
   const isFloatingSwitchback =
     /floating_switchback|switchback|FLOATING_SWITCHBACK_V1/.test(raw);
-  const isSpiralMetal =
-    /spiral_metal|spiral|SPIRAL_METAL_V1/.test(raw);
+  const isSpiralMetal = /spiral_metal|spiral|SPIRAL_METAL_V1/.test(raw);
   const isConcreteParametric =
     /concrete_parametric|concrete|CONCRETE_PARAMETRIC_V1/.test(raw);
 
@@ -195,8 +207,8 @@ const deriveStairPreset = (source?: string | null) => {
         concrete_brightness: "0.62",
         show_dark_edges: true,
         metalness: "0.02",
-        roughness: "0.58"
-      }
+        roughness: "0.58",
+      },
     };
   }
 
@@ -206,8 +218,8 @@ const deriveStairPreset = (source?: string | null) => {
       width: 2000,
       height: 3450,
       metadata: {
-        stair_style: "spiral_metal"
-      }
+        stair_style: "spiral_metal",
+      },
     };
   }
 
@@ -217,11 +229,10 @@ const deriveStairPreset = (source?: string | null) => {
       width: 2050,
       height: 2450,
       metadata: {
-        stair_style: "floating_switchback"
-      }
+        stair_style: "floating_switchback",
+      },
     };
   }
-
 
   return {
     type: "standard",
@@ -232,19 +243,27 @@ const deriveStairPreset = (source?: string | null) => {
 
 const deriveRailingPreset = (source?: string | null) => {
   const raw = String(source || "").toLowerCase();
-  if (raw.includes("glass")) return { railingStyle: "glass", length: 6000, height: 1100 };
-  if (raw.includes("horizontal")) return { railingStyle: "horizontal", length: 8000, height: 1100 };
-  if (raw.includes("tree") || raw.includes("branch")) return { railingStyle: "tree_branch", length: 2240, height: 1000 };
+  if (raw.includes("glass"))
+    return { railingStyle: "glass", length: 6000, height: 1100 };
+  if (raw.includes("horizontal"))
+    return { railingStyle: "horizontal", length: 8000, height: 1100 };
+  if (raw.includes("tree") || raw.includes("branch"))
+    return { railingStyle: "tree_branch", length: 2240, height: 1000 };
   return { railingStyle: "modern", length: 8000, height: 1100 };
 };
 
 const deriveRoofPreset = (source?: string | null) => {
   const raw = String(source || "").toLowerCase();
-  if (raw.includes("rounded")) return { roofStyle: "soft_rounded", width: 9000, depth: 6000 };
-  if (raw.includes("modern")) return { roofStyle: "modern_flat", width: 8000, depth: 6000 };
-  if (raw.includes("tile")) return { roofStyle: "sloped_tile", width: 8000, depth: 8000 };
-  if (raw.includes("gable")) return { roofStyle: "symmetric_gable", width: 8000, depth: 8000 };
-  if (raw.includes("thatch")) return { roofStyle: "thatched", width: 7000, depth: 5000 };
+  if (raw.includes("rounded"))
+    return { roofStyle: "soft_rounded", width: 9000, depth: 6000 };
+  if (raw.includes("modern"))
+    return { roofStyle: "modern_flat", width: 8000, depth: 6000 };
+  if (raw.includes("tile"))
+    return { roofStyle: "sloped_tile", width: 8000, depth: 8000 };
+  if (raw.includes("gable"))
+    return { roofStyle: "symmetric_gable", width: 8000, depth: 8000 };
+  if (raw.includes("thatch"))
+    return { roofStyle: "thatched", width: 7000, depth: 5000 };
   return { roofStyle: "modern_flat", width: 8000, depth: 6000 };
 };
 
@@ -257,19 +276,49 @@ const deriveFloorPreset = (source?: string | null) => {
   const isChecker = /checker|ceramic|CHECKER_CERAMIC_V1/.test(raw);
 
   if (isMarble) {
-    return { type: "marble_vitrified", width: 3000, depth: 3000, material: "Marble Vitrified", color: "#f8fafc" };
+    return {
+      type: "marble_vitrified",
+      width: 3000,
+      depth: 3000,
+      material: "Marble Vitrified",
+      color: "#f8fafc",
+    };
   }
   if (isConcrete) {
-    return { type: "concrete_tile", width: 4000, depth: 4000, material: "Concrete Tile", color: "#94a3b8" };
+    return {
+      type: "concrete_tile",
+      width: 4000,
+      depth: 4000,
+      material: "Concrete Tile",
+      color: "#94a3b8",
+    };
   }
   if (isDecorative) {
-    return { type: "decorative_medallion", width: 3000, depth: 3000, material: "Decorative Medallion", color: "#fef3c7" };
+    return {
+      type: "decorative_medallion",
+      width: 3000,
+      depth: 3000,
+      material: "Decorative Medallion",
+      color: "#fef3c7",
+    };
   }
   if (isLuxury) {
-    return { type: "luxury_stone", width: 3500, depth: 3500, material: "Luxury Stone", color: "#e2e8f0" };
+    return {
+      type: "luxury_stone",
+      width: 3500,
+      depth: 3500,
+      material: "Luxury Stone",
+      color: "#e2e8f0",
+    };
   }
   if (isChecker) {
-    return { type: "checker_ceramic", width: 2500, depth: 2500, material: "Checker Ceramic", color: "#f1f5f9" };
+    return {
+      type: "checker_ceramic",
+      width: 2500,
+      depth: 2500,
+      material: "Checker Ceramic",
+      color: "#f1f5f9",
+    };
   }
 
   return {
@@ -277,27 +326,40 @@ const deriveFloorPreset = (source?: string | null) => {
     width: 3000,
     depth: 3000,
     material: "Marble Vitrified",
-    color: "#f8fafc"
+    color: "#f8fafc",
   };
 };
 
 const deriveWallPreset = (materialName?: string | null) => {
   const raw = String(materialName || "").toLowerCase();
-  if (raw.includes("clear_glass_partition")) return { material: "Clear Glass Partition", color: "#e0f2fe" };
-  if (raw.includes("frosted_glass_partition")) return { material: "Frosted Glass Partition", color: "#f1f5f9" };
-  if (raw.includes("ribbed_glass_partition")) return { material: "Ribbed Glass Partition", color: "#cbd5e1" };
-  if (raw.includes("smoked_glass_partition")) return { material: "Smoked Glass Partition", color: "#334155" };
-  if (raw.includes("gradient_glass_partition")) return { material: "Gradient Glass Partition", color: "#94a3b8" };
-  if (raw.includes("colored_laminated_partition")) return { material: "Colored Laminated Partition", color: "#3b82f6" };
-  if (raw.includes("oak_slat_partition")) return { material: "Oak Slat Partition", color: "#8b5e3c" };
-  if (raw.includes("ash_wood_partition")) return { material: "Ash Wood Partition", color: "#d2b48c" };
-  if (raw.includes("matte_black_wood_partition")) return { material: "Matte Black Wood Partition", color: "#1a1a1a" };
+  if (raw.includes("clear_glass_partition"))
+    return { material: "Clear Glass Partition", color: "#e0f2fe" };
+  if (raw.includes("frosted_glass_partition"))
+    return { material: "Frosted Glass Partition", color: "#f1f5f9" };
+  if (raw.includes("ribbed_glass_partition"))
+    return { material: "Ribbed Glass Partition", color: "#cbd5e1" };
+  if (raw.includes("smoked_glass_partition"))
+    return { material: "Smoked Glass Partition", color: "#334155" };
+  if (raw.includes("gradient_glass_partition"))
+    return { material: "Gradient Glass Partition", color: "#94a3b8" };
+  if (raw.includes("colored_laminated_partition"))
+    return { material: "Colored Laminated Partition", color: "#3b82f6" };
+  if (raw.includes("oak_slat_partition"))
+    return { material: "Oak Slat Partition", color: "#8b5e3c" };
+  if (raw.includes("ash_wood_partition"))
+    return { material: "Ash Wood Partition", color: "#d2b48c" };
+  if (raw.includes("matte_black_wood_partition"))
+    return { material: "Matte Black Wood Partition", color: "#1a1a1a" };
 
   // Compound Walls
-  if (raw.includes("exposed_concrete_compound")) return { material: "Exposed Concrete Compound", color: "#8F8C87" };
-  if (raw.includes("natural_stone_compound")) return { material: "Natural Stone Compound", color: "#8A8176" };
-  if (raw.includes("wooden_slat_compound")) return { material: "Wooden Slat Compound", color: "#8A5B34" };
-  if (raw.includes("brick_texture_compound")) return { material: "Brick Texture Compound", color: "#8E4F39" };
+  if (raw.includes("exposed_concrete_compound"))
+    return { material: "Exposed Concrete Compound", color: "#8F8C87" };
+  if (raw.includes("natural_stone_compound"))
+    return { material: "Natural Stone Compound", color: "#8A8176" };
+  if (raw.includes("wooden_slat_compound"))
+    return { material: "Wooden Slat Compound", color: "#8A5B34" };
+  if (raw.includes("brick_texture_compound"))
+    return { material: "Brick Texture Compound", color: "#8E4F39" };
 
   if (raw.includes("glass")) return { material: "Glass", color: "#a5f3fc" };
   if (raw.includes("brick")) return { material: "Red Brick", color: "#d4a574" };
@@ -310,7 +372,6 @@ const deriveWallPreset = (materialName?: string | null) => {
   if (raw.includes("wood")) return { material: "Wood Frame", color: "#8B4513" };
   return { material: "Standard", color: "#ffffff" };
 };
-
 
 export default function CADEditor({
   projectId,
@@ -335,6 +396,9 @@ export default function CADEditor({
   // Ghost preview position while door/window tool is active
   const [previewPos, setPreviewPos] = useState<Point2D | null>(null);
   const [previewWall, setPreviewWall] = useState<Wall | undefined>(undefined);
+  const [roomLabelMode, setRoomLabelMode] = useState<"area" | "dimensions">(
+    "dimensions",
+  );
 
   // Levels and Furniture
   const [levels, setLevels] = useState<Level[]>([]);
@@ -360,8 +424,10 @@ export default function CADEditor({
   const [selectedRailingModelUrl, setSelectedRailingModelUrl] = useState<
     string | null
   >(null);
-  const [selectedRoofStyle, setSelectedRoofStyle] = useState<string>("modern_flat");
-  const [selectedWallMaterial, setSelectedWallMaterial] = useState<string>("Standard");
+  const [selectedRoofStyle, setSelectedRoofStyle] =
+    useState<string>("modern_flat");
+  const [selectedWallMaterial, setSelectedWallMaterial] =
+    useState<string>("Standard");
   const [customDoorUrl, setCustomDoorUrl] = useState<string>("");
   const [selectedFurnitureType, setSelectedFurnitureType] = useState<
     string | null
@@ -604,6 +670,44 @@ export default function CADEditor({
   // ─────────────────────────────────────────────────────────
 
   const walls = elements.filter((e): e is Wall => e.type === "wall");
+  const polylines = elements.filter(
+    (e): e is Polyline => e.type === "polyline",
+  );
+
+  const getCircuitId = (element: Element): string | null => {
+    if (element.type === "electrical_fixture") {
+      const fixture = element as ElectricalFixture;
+      return fixture.circuitId || fixture.metadata?.circuitId || null;
+    }
+    if (element.type === "polyline") {
+      return element.metadata?.circuitId || null;
+    }
+    return null;
+  };
+
+  const selectedCircuitIds = new Set(
+    selectedIds
+      .map((id) => elements.find((element) => element.id === id))
+      .filter((element): element is Element => Boolean(element))
+      .map((element) => getCircuitId(element))
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  const polylineIdsForCircuit = (circuitId: string | null) =>
+    circuitId
+      ? polylines
+          .filter((poly) => poly.metadata?.circuitId === circuitId)
+          .map((poly) => poly.id)
+      : [];
+
+  const polylineIdsForFixture = (fixtureId: string) =>
+    polylines
+      .filter(
+        (poly) =>
+          poly.metadata?.branchId === fixtureId ||
+          poly.metadata?.fixtureId === fixtureId,
+      )
+      .map((poly) => poly.id);
 
   const getWallDirection = (wall: Wall) => {
     const dx = wall.endPoint.x - wall.startPoint.x;
@@ -706,6 +810,12 @@ export default function CADEditor({
         setStartPoint(pos);
         setIsDrawing(true);
       }
+    } else if (activeTool === "room") {
+      if (!isDrawing) {
+        setStartPoint(pos);
+        setEndPoint(pos);
+        setIsDrawing(true);
+      }
     } else if (activeTool === "door" || activeTool === "window") {
       const pos = getMousePos(e);
       const hostWall = findWallAt(pos);
@@ -728,41 +838,41 @@ export default function CADEditor({
       const newElement: Element =
         activeTool === "door"
           ? {
-            id: `door_${Date.now()}`,
-            type: "door",
-            position,
-            width: doorPreset.width,
-            height: doorPreset.height,
-            swingDirection: doorPreset.swingDirection,
-            wallId: hostWall?.id,
-            orientation,
-            openingSide: doorPreset.openingSide,
-            material: doorPreset.material,
-            metadata: selectedDoorModelUrl
-              ? {
-                door_model_url: selectedDoorModelUrl,
-                door_style: doorPreset.doorStyle,
-              }
-              : { door_style: doorPreset.doorStyle },
-            fireRating: "-",
-          }
+              id: `door_${Date.now()}`,
+              type: "door",
+              position,
+              width: doorPreset.width,
+              height: doorPreset.height,
+              swingDirection: doorPreset.swingDirection,
+              wallId: hostWall?.id,
+              orientation,
+              openingSide: doorPreset.openingSide,
+              material: doorPreset.material,
+              metadata: selectedDoorModelUrl
+                ? {
+                    door_model_url: selectedDoorModelUrl,
+                    door_style: doorPreset.doorStyle,
+                  }
+                : { door_style: doorPreset.doorStyle },
+              fireRating: "-",
+            }
           : {
-            id: `win_${Date.now()}`,
-            type: "window",
-            position,
-            width: openingWidth,
-            height: windowPreset.height,
-            wallId: hostWall?.id,
-            orientation,
-            material: windowPreset.material,
-            glazing: windowPreset.glazing,
-            metadata: selectedWindowModelUrl
-              ? {
-                window_model_url: selectedWindowModelUrl,
-                window_style: windowPreset.windowStyle,
-              }
-              : { window_style: windowPreset.windowStyle },
-          };
+              id: `win_${Date.now()}`,
+              type: "window",
+              position,
+              width: openingWidth,
+              height: windowPreset.height,
+              wallId: hostWall?.id,
+              orientation,
+              material: windowPreset.material,
+              glazing: windowPreset.glazing,
+              metadata: selectedWindowModelUrl
+                ? {
+                    window_model_url: selectedWindowModelUrl,
+                    window_style: windowPreset.windowStyle,
+                  }
+                : { window_style: windowPreset.windowStyle },
+            };
 
       setElements((prev) => [...prev, newElement]);
       setIsDrawing(false);
@@ -911,6 +1021,8 @@ export default function CADEditor({
     const pos = snapToGrid(getMousePos(e));
     if (activeTool === "wall" && isDrawing) {
       setEndPoint(pos);
+    } else if (activeTool === "room" && isDrawing) {
+      setEndPoint(pos);
     } else if (activeTool === "dimension" && isDrawing) {
       setEndPoint(pos);
     }
@@ -965,6 +1077,42 @@ export default function CADEditor({
       };
 
       setElements((prev) => [...prev, newWall]);
+      setStartPoint(null);
+      setEndPoint(null);
+      setIsDrawing(false);
+    }
+
+    if (activeTool === "room" && isDrawing && startPoint && endPoint) {
+      const left = Math.min(startPoint.x, endPoint.x);
+      const right = Math.max(startPoint.x, endPoint.x);
+      const top = Math.min(startPoint.y, endPoint.y);
+      const bottom = Math.max(startPoint.y, endPoint.y);
+      const widthMm = Math.round((right - left) * MM_TO_CANVAS);
+      const depthMm = Math.round((bottom - top) * MM_TO_CANVAS);
+      if (widthMm >= 400 && depthMm >= 400) {
+        const roomCount = elements.filter((el) => el.type === "room").length;
+        const roomName =
+          prompt("Room name:", `Room ${roomCount + 1}`) ||
+          `Room ${roomCount + 1}`;
+        const newRoom: Room = {
+          id: `room_${Date.now()}`,
+          type: "room",
+          name: roomName,
+          vertices: [
+            { x: left, y: top },
+            { x: right, y: top },
+            { x: right, y: bottom },
+            { x: left, y: bottom },
+          ],
+          height: 3000,
+          properties: {
+            area: (widthMm * depthMm) / 1000000,
+            perimeter: ((widthMm + depthMm) * 2) / 1000,
+            volume: ((widthMm * depthMm) / 1000000) * 3,
+          },
+        };
+        setElements((prev) => [...prev, newRoom]);
+      }
       setStartPoint(null);
       setEndPoint(null);
       setIsDrawing(false);
@@ -1119,8 +1267,8 @@ export default function CADEditor({
           // Prefer current host wall to avoid jumpy re-assignment while dragging.
           let hostWall = opening.wallId
             ? (prev.find(
-              (w) => w.id === opening.wallId && w.type === "wall",
-            ) as Wall | undefined)
+                (w) => w.id === opening.wallId && w.type === "wall",
+              ) as Wall | undefined)
             : undefined;
 
           // If not attached yet, try nearest wall.
@@ -1196,9 +1344,108 @@ export default function CADEditor({
         return renderRailing(element);
       case "roof":
         return renderRoof(element);
+      case "room":
+        return renderRoom(element as Room);
+      case "polyline":
+        return renderPolyline(element as any);
+      case "electrical_fixture":
+        return renderElectricalFixture(element as ElectricalFixture);
       default:
         return null;
     }
+  };
+
+  const renderPolyline = (poly: any) => {
+    const circuitId = poly.metadata?.circuitId || null;
+    const isSelected =
+      selectedIds.includes(poly.id) ||
+      (circuitId ? selectedCircuitIds.has(circuitId) : false);
+    return (
+      <Group key={poly.id} onClick={() => setSelectedIds([poly.id])}>
+        <Line
+          points={poly.points || []}
+          stroke={isSelected ? "#f59e0b" : poly.stroke || "#9ca3af"}
+          strokeWidth={
+            isSelected ? (poly.strokeWidth || 2) + 2 : poly.strokeWidth || 2
+          }
+          lineCap="round"
+          lineJoin="round"
+        />
+        {isSelected && (
+          <Line
+            points={poly.points || []}
+            stroke="#ef4444"
+            strokeWidth={(poly.strokeWidth || 2) + 6}
+            opacity={0.12}
+          />
+        )}
+      </Group>
+    );
+  };
+
+  const renderRoom = (room: Room, isPreview = false) => {
+    const xs = room.vertices.map((v) => v.x);
+    const ys = room.vertices.map((v) => v.y);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
+    const width = Math.max(...xs) - minX;
+    const height = Math.max(...ys) - minY;
+    const widthMm = Math.round(width * MM_TO_CANVAS);
+    const heightMm = Math.round(height * MM_TO_CANVAS);
+    const areaLabel = `${(room.properties.area || 0).toFixed(2)} m²`;
+    const dimensionLabel = `${formatImperial(widthMm)} x ${formatImperial(heightMm)}`;
+    const isSelected = selectedIds.includes(room.id);
+
+    return (
+      <Group
+        key={room.id}
+        x={minX}
+        y={minY}
+        draggable={!isPreview && activeTool === "select"}
+        onClick={() => !isPreview && setSelectedIds([room.id])}
+        onDragEnd={(e) => {
+          if (isPreview) return;
+          const nextX = e.target.x();
+          const nextY = e.target.y();
+          const dx = nextX - minX;
+          const dy = nextY - minY;
+          setElements((prev) =>
+            prev.map((el) => {
+              if (el.id !== room.id || el.type !== "room") return el;
+              const currentRoom = el as Room;
+              return {
+                ...currentRoom,
+                vertices: currentRoom.vertices.map((vertex) => ({
+                  x: vertex.x + dx,
+                  y: vertex.y + dy,
+                })),
+              } as Room;
+            }),
+          );
+          e.target.position({ x: 0, y: 0 });
+        }}
+      >
+        <Rect
+          x={0}
+          y={0}
+          width={width}
+          height={height}
+          fill={isSelected ? "rgba(59,130,246,0.12)" : "rgba(148,163,184,0.08)"}
+          stroke={isSelected ? "#2563eb" : "#64748b"}
+          strokeWidth={2}
+          dash={isPreview ? [6, 4] : []}
+        />
+        <KonvaText
+          x={8}
+          y={8}
+          text={`${room.name} | ${
+            roomLabelMode === "area" ? areaLabel : dimensionLabel
+          }`}
+          fontSize={11}
+          fill="#334155"
+        />
+      </Group>
+    );
   };
 
   const renderWall = (wall: Wall) => {
@@ -1275,7 +1522,7 @@ export default function CADEditor({
     const hingePoint = door.swingDirection === "left" ? p1 : p2;
     const arcRotation =
       (Math.atan2(normal.y * insideSign, normal.x * insideSign) * 180) /
-      Math.PI -
+        Math.PI -
       (door.swingDirection === "left" ? 90 : 0);
 
     const leafEnd = {
@@ -1411,7 +1658,7 @@ export default function CADEditor({
               rotation={
                 (Math.atan2(normal.y * insideSign, normal.x * insideSign) *
                   180) /
-                Math.PI -
+                  Math.PI -
                 90
               }
               stroke="#7c2d12"
@@ -1441,11 +1688,11 @@ export default function CADEditor({
                 p1.x + dir.x * (openingWidth / 3),
                 p1.y + dir.y * (openingWidth / 3),
                 p1.x +
-                dir.x * (openingWidth / 3) +
-                normal.x * insideSign * (openingWidth / 2.8),
+                  dir.x * (openingWidth / 3) +
+                  normal.x * insideSign * (openingWidth / 2.8),
                 p1.y +
-                dir.y * (openingWidth / 3) +
-                normal.y * insideSign * (openingWidth / 2.8),
+                  dir.y * (openingWidth / 3) +
+                  normal.y * insideSign * (openingWidth / 2.8),
               ]}
               stroke="#7c2d12"
               strokeWidth={2}
@@ -1455,11 +1702,11 @@ export default function CADEditor({
                 p1.x + dir.x * ((2 * openingWidth) / 3),
                 p1.y + dir.y * ((2 * openingWidth) / 3),
                 p1.x +
-                dir.x * ((2 * openingWidth) / 3) +
-                normal.x * insideSign * (openingWidth / 2.8),
+                  dir.x * ((2 * openingWidth) / 3) +
+                  normal.x * insideSign * (openingWidth / 2.8),
                 p1.y +
-                dir.y * ((2 * openingWidth) / 3) +
-                normal.y * insideSign * (openingWidth / 2.8),
+                  dir.y * ((2 * openingWidth) / 3) +
+                  normal.y * insideSign * (openingWidth / 2.8),
               ]}
               stroke="#7c2d12"
               strokeWidth={2}
@@ -1624,16 +1871,16 @@ export default function CADEditor({
             prev.map((el) =>
               el.id === dim.id
                 ? {
-                  ...el,
-                  startPoint: {
-                    x: (el as Dimension).startPoint.x + e.target.x(),
-                    y: (el as Dimension).startPoint.y + e.target.y(),
-                  },
-                  endPoint: {
-                    x: (el as Dimension).endPoint.x + e.target.x(),
-                    y: (el as Dimension).endPoint.y + e.target.y(),
-                  },
-                }
+                    ...el,
+                    startPoint: {
+                      x: (el as Dimension).startPoint.x + e.target.x(),
+                      y: (el as Dimension).startPoint.y + e.target.y(),
+                    },
+                    endPoint: {
+                      x: (el as Dimension).endPoint.x + e.target.x(),
+                      y: (el as Dimension).endPoint.y + e.target.y(),
+                    },
+                  }
                 : el,
             ),
           );
@@ -1747,21 +1994,29 @@ export default function CADEditor({
         {[...Array(Math.floor(w / 12))].map((_, i) => (
           <Line
             key={`v-${i}`}
-            points={[-w / 2 + (i + 1) * 12, -d / 2, -w / 2 + (i + 1) * 12, d / 2]}
+            points={[
+              -w / 2 + (i + 1) * 12,
+              -d / 2,
+              -w / 2 + (i + 1) * 12,
+              d / 2,
+            ]}
             stroke="#e2e8f0"
             strokeWidth={0.5}
           />
         ))}
         {[...Array(Math.floor(d / 12))].map((_, i) => (
-
           <Line
             key={`h-${i}`}
-            points={[-w / 2, -d / 2 + (i + 1) * 12, w / 2, -d / 2 + (i + 1) * 12]}
+            points={[
+              -w / 2,
+              -d / 2 + (i + 1) * 12,
+              w / 2,
+              -d / 2 + (i + 1) * 12,
+            ]}
             stroke="#e2e8f0"
             strokeWidth={0.5}
           />
         ))}
-
       </Group>
     );
   };
@@ -1784,7 +2039,9 @@ export default function CADEditor({
           if (isPreview) return;
           const newPos = { x: e.target.x(), y: e.target.y() };
           setElements((prev) =>
-            prev.map((el) => (el.id === railing.id ? { ...el, position: newPos } : el)),
+            prev.map((el) =>
+              el.id === railing.id ? { ...el, position: newPos } : el,
+            ),
           );
         }}
       >
@@ -1825,7 +2082,9 @@ export default function CADEditor({
           if (isPreview) return;
           const newPos = { x: e.target.x(), y: e.target.y() };
           setElements((prev) =>
-            prev.map((el) => (el.id === roof.id ? { ...el, position: newPos } : el)),
+            prev.map((el) =>
+              el.id === roof.id ? { ...el, position: newPos } : el,
+            ),
           );
         }}
       >
@@ -1857,16 +2116,100 @@ export default function CADEditor({
     );
   };
 
+  const renderElectricalFixture = (
+    fixture: ElectricalFixture,
+    isPreview = false,
+  ) => {
+    const circuitId = fixture.circuitId || fixture.metadata?.circuitId || null;
+    const isSelected = selectedIds.includes(fixture.id);
+    const kind = fixture.fixtureType;
+    const fillByKind: Record<ElectricalFixture["fixtureType"], string> = {
+      light: "#facc15",
+      socket: "#60a5fa",
+      switch: "#34d399",
+      emergency_light: "#fb7185",
+      stage_light: "#f97316",
+    };
+    const fill = fillByKind[kind] || fixture.color || "#60a5fa";
+    const size = Math.max(
+      18,
+      Math.min(fixture.width || 30, fixture.height || 30) / 2,
+    );
+    const label =
+      kind === "light"
+        ? "L"
+        : kind === "socket"
+          ? "S"
+          : kind === "switch"
+            ? "SW"
+            : kind === "emergency_light"
+              ? "E"
+              : "ST";
+
+    return (
+      <Group
+        key={fixture.id}
+        x={fixture.position.x}
+        y={fixture.position.y}
+        draggable={!isPreview && activeTool === "select"}
+        opacity={isPreview ? 0.7 : 1}
+        onClick={() =>
+          !isPreview &&
+          setSelectedIds([fixture.id, ...polylineIdsForFixture(fixture.id)])
+        }
+        onDragStart={() => !isPreview && setSelectedIds([fixture.id])}
+        onDragEnd={(e) => {
+          if (isPreview) return;
+          const pos = e.target.position();
+          setElements((prev) =>
+            prev.map((el) =>
+              el.id === fixture.id
+                ? { ...el, position: { x: pos.x, y: pos.y } }
+                : el,
+            ),
+          );
+          e.target.position({ x: 0, y: 0 });
+        }}
+      >
+        <Circle
+          x={0}
+          y={0}
+          radius={size / 2}
+          fill={fill}
+          stroke={isSelected ? "#ffffff" : "#0f172a"}
+          strokeWidth={isSelected ? 3 : 1.5}
+        />
+        <KonvaText
+          text={label}
+          fontSize={10}
+          fontStyle="bold"
+          fill={isSelected ? "#ffffff" : "#0f172a"}
+          align="center"
+          verticalAlign="middle"
+          width={size}
+          height={size}
+          offsetX={size / 2}
+          offsetY={5}
+        />
+      </Group>
+    );
+  };
+
   const renderStairs = (stair: any, isPreview = false) => {
     const isSelected = selectedIds.includes(stair.id);
-    const style = (stair as any).metadata?.stair_style || (stair as any).metadata?.stairStyle || "standard";
+    const style =
+      (stair as any).metadata?.stair_style ||
+      (stair as any).metadata?.stairStyle ||
+      "standard";
 
     // Straight Parametric Style (Concrete)
     if (style === "concrete_parametric") {
       const steps = parseInt(stair.metadata?.number_of_steps || "8");
       const width = (stair.width || 2400) / 50;
-      const tread = (parseFloat(stair.metadata?.tread_depth || "0.42") * 1000) / 50;
-      const landing = (parseFloat(stair.metadata?.landing_depth || "0.65") * 1000) / 50;
+      const tread =
+        (parseFloat(stair.metadata?.tread_depth || "0.42") * 1000) / 50;
+      const landing =
+        (parseFloat(stair.metadata?.landing_depth || "0.65") * 1000) / 50;
       const totalL = steps * tread + landing;
 
       return (
@@ -1883,7 +2226,9 @@ export default function CADEditor({
             if (isPreview) return;
             const newPos = { x: e.target.x(), y: e.target.y() };
             setElements((prev) =>
-              prev.map((el) => (el.id === stair.id ? { ...el, position: newPos } : el)),
+              prev.map((el) =>
+                el.id === stair.id ? { ...el, position: newPos } : el,
+              ),
             );
           }}
         >
@@ -1954,7 +2299,9 @@ export default function CADEditor({
           if (isPreview) return;
           const newPos = { x: e.target.x(), y: e.target.y() };
           setElements((prev) =>
-            prev.map((el) => (el.id === stair.id ? { ...el, position: newPos } : el)),
+            prev.map((el) =>
+              el.id === stair.id ? { ...el, position: newPos } : el,
+            ),
           );
         }}
       >
@@ -1973,10 +2320,7 @@ export default function CADEditor({
         {[...Array(steps + 1)].map((_, i) => (
           <Line
             key={`lower-${i}`}
-            points={[
-              i * run, -totalD / 2,
-              i * run, -totalD / 2 + treadWidth
-            ]}
+            points={[i * run, -totalD / 2, i * run, -totalD / 2 + treadWidth]}
             stroke="#94a3b8"
             strokeWidth={1}
           />
@@ -1986,10 +2330,7 @@ export default function CADEditor({
         {[...Array(steps + 1)].map((_, i) => (
           <Line
             key={`upper-${i}`}
-            points={[
-              i * run, totalD / 2,
-              i * run, totalD / 2 - treadWidth
-            ]}
+            points={[i * run, totalD / 2, i * run, totalD / 2 - treadWidth]}
             stroke="#94a3b8"
             strokeWidth={1}
           />
@@ -2005,10 +2346,14 @@ export default function CADEditor({
         {/* Path Arrow */}
         <Line
           points={[
-            run / 2, -totalD / 4,
-            flightLen + landingWidth / 2, -totalD / 4,
-            flightLen + landingWidth / 2, totalD / 4,
-            run / 2, totalD / 4
+            run / 2,
+            -totalD / 4,
+            flightLen + landingWidth / 2,
+            -totalD / 4,
+            flightLen + landingWidth / 2,
+            totalD / 4,
+            run / 2,
+            totalD / 4,
           ]}
           stroke="#b45309"
           strokeWidth={1.5}
@@ -2017,9 +2362,12 @@ export default function CADEditor({
         />
         <Line
           points={[
-            run, totalD / 4 - 4,
-            run / 2, totalD / 4,
-            run, totalD / 4 + 4
+            run,
+            totalD / 4 - 4,
+            run / 2,
+            totalD / 4,
+            run,
+            totalD / 4 + 4,
           ]}
           stroke="#b45309"
           strokeWidth={1.5}
@@ -2197,6 +2545,16 @@ export default function CADEditor({
             </span>
           </button>
           <button
+            onClick={() => setActiveTool("room")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "room" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
+            title="Room / Area (R)"
+          >
+            <Square className="w-5 h-5" />
+            <span className="text-[11px] font-black uppercase tracking-wider">
+              Room
+            </span>
+          </button>
+          <button
             onClick={() => setActiveTool("stairs")}
             className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${activeTool === "stairs" ? "bg-blue-700 text-white shadow-inner" : "hover:bg-gray-100 text-gray-800"}`}
             title="Stairs (S)"
@@ -2276,249 +2634,257 @@ export default function CADEditor({
         {(activeTool === "wall" ||
           activeTool === "door" ||
           activeTool === "window" ||
+          activeTool === "room" ||
           activeTool === "stairs" ||
           activeTool === "floor" ||
           activeTool === "roof" ||
           activeTool === "railing" ||
           activeTool === "furniture") && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border-2 border-blue-200 rounded-md animate-in slide-in-from-left-2 duration-200 shadow-sm">
-              {activeTool === "wall" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Wall Style:
-                  </span>
-                  <select
-                    value={selectedWallMaterial}
-                    onChange={(e) => setSelectedWallMaterial(e.target.value)}
-                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="Standard">Standard Wall</option>
-                    <option value="Red Brick">Red Brick Wall</option>
-                    <option value="CMU Block">CMU Block Wall</option>
-                    <option value="Glass">Glass Partition</option>
-                    <option value="Wooden Slat">Wooden Slat Wall</option>
-                    <option value="Steel">Steel Panel</option>
-                    <option value="Wood Frame">Wood Frame</option>
-                    <optgroup label="Partition Walls">
-                      <option value="clear_glass_partition">Clear Glass Partition</option>
-                      <option value="frosted_glass_partition">Frosted Glass Partition</option>
-                      <option value="ribbed_glass_partition">Ribbed Glass Partition</option>
-                      <option value="smoked_glass_partition">Smoked Glass Partition</option>
-                      <option value="gradient_glass_partition">Gradient Glass Partition</option>
-                      <option value="colored_laminated_partition">Colored Laminated Partition</option>
-                      <option value="oak_slat_partition">Oak Slat Partition</option>
-                      <option value="ash_wood_partition">Ash Wood Partition</option>
-                      <option value="matte_black_wood_partition">Matte Black Wood Partition</option>
-                    </optgroup>
-                    <optgroup label="Compound Walls">
-                      <option value="exposed_concrete_compound">Exposed Concrete Compound</option>
-                      <option value="natural_stone_compound">Natural Stone Compound</option>
-                      <option value="wooden_slat_compound">Wooden Slat Compound</option>
-                      <option value="brick_texture_compound">Brick Texture Compound</option>
-                    </optgroup>
-                  </select>
-                </>
-              )}
-              {activeTool === "door" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Door Style:
-                  </span>
-                  <select
-                    value={selectedDoorModelUrl || ""}
-                    onChange={(e) => setSelectedDoorModelUrl(e.target.value)}
-                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="">Standard BIM Door</option>
-                    <option value="LUXURY_MODERN_V1">Luxury Modern Door</option>
-                    <option value="MODERN_WOOD_INLAY_V1">Modern Wood Inlay</option>
-                    <option value="SLATTED_PIVOT_V1">Slatted Pivot Door</option>
-                    <option value="CLASSIC_DOUBLE_V1">Classic Double Door</option>
-                    <option value="MANDALA_DOUBLE_V1">Mandala Double Door</option>
-                    <option value="SLIM_BLACK_GLASS_V1">Modern Wood Glass</option>
-                    <option value="GEOMETRIC_DOUBLE_GLASS_V1">Geometric Double Glass</option>
-                    <option value="LUXURY_WHITE_GOLD_V1">Luxury White & Gold</option>
-                    <option value="MODERN_SLIDING_GLASS_V1">Modern Sliding Glass</option>
-                    {doorLibrary.map((d) => (
-                      <option key={d.path} value={d.raw_url || d.download_url}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
+          <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border-2 border-blue-200 rounded-md animate-in slide-in-from-left-2 duration-200 shadow-sm">
+            {activeTool === "wall" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Wall Style:
+                </span>
+                <select
+                  value={selectedWallMaterial}
+                  onChange={(e) => setSelectedWallMaterial(e.target.value)}
+                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="Standard">Standard Wall</option>
+                  <option value="Red Brick">Red Brick Wall</option>
+                  <option value="CMU Block">CMU Block Wall</option>
+                  <option value="Glass">Glass Partition</option>
+                  <option value="Wooden Slat">Wooden Slat Wall</option>
+                  <option value="Steel">Steel Panel</option>
+                  <option value="Wood Frame">Wood Frame</option>
+                  <optgroup label="Partition Walls">
+                    <option value="clear_glass_partition">
+                      Clear Glass Partition
+                    </option>
+                    <option value="frosted_glass_partition">
+                      Frosted Glass Partition
+                    </option>
+                    <option value="ribbed_glass_partition">
+                      Ribbed Glass Partition
+                    </option>
+                    <option value="smoked_glass_partition">
+                      Smoked Glass Partition
+                    </option>
+                    <option value="gradient_glass_partition">
+                      Gradient Glass Partition
+                    </option>
+                    <option value="colored_laminated_partition">
+                      Colored Laminated Partition
+                    </option>
+                    <option value="oak_slat_partition">
+                      Oak Slat Partition
+                    </option>
+                    <option value="ash_wood_partition">
+                      Ash Wood Partition
+                    </option>
+                    <option value="matte_black_wood_partition">
+                      Matte Black Wood Partition
+                    </option>
+                  </optgroup>
+                  <optgroup label="Compound Walls">
+                    <option value="exposed_concrete_compound">
+                      Exposed Concrete Compound
+                    </option>
+                    <option value="natural_stone_compound">
+                      Natural Stone Compound
+                    </option>
+                    <option value="wooden_slat_compound">
+                      Wooden Slat Compound
+                    </option>
+                    <option value="brick_texture_compound">
+                      Brick Texture Compound
+                    </option>
+                  </optgroup>
+                </select>
+              </>
+            )}
+            {activeTool === "door" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Door Style:
+                </span>
+                <select
+                  value={selectedDoorModelUrl || ""}
+                  onChange={(e) => setSelectedDoorModelUrl(e.target.value)}
+                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="">Standard BIM Door</option>
+                  <option value="LUXURY_MODERN_V1">Luxury Modern Door</option>
+                  <option value="MODERN_WOOD_INLAY_V1">
+                    Modern Wood Inlay
+                  </option>
+                  <option value="SLATTED_PIVOT_V1">Slatted Pivot Door</option>
+                  <option value="CLASSIC_DOUBLE_V1">Classic Double Door</option>
+                  <option value="MANDALA_DOUBLE_V1">Mandala Double Door</option>
+                  <option value="SLIM_BLACK_GLASS_V1">Modern Wood Glass</option>
+                  <option value="GEOMETRIC_DOUBLE_GLASS_V1">
+                    Geometric Double Glass
+                  </option>
+                  <option value="LUXURY_WHITE_GOLD_V1">
+                    Luxury White & Gold
+                  </option>
+                  <option value="MODERN_SLIDING_GLASS_V1">
+                    Modern Sliding Glass
+                  </option>
+                  {doorLibrary.map((d) => (
+                    <option key={d.path} value={d.raw_url || d.download_url}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
-              {activeTool === "window" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Window Style:
-                  </span>
-                  <select
-                    value={selectedWindowModelUrl || ""}
-                    onChange={(e) =>
-                      setSelectedWindowModelUrl(e.target.value || null)
-                    }
-                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="">Standard BIM Window</option>
-                    <option value="DOUBLE_CASEMENT_TRANSOM_V1">Double Casement Transom</option>
-                    <option value="MODERN_SLIDING_V1">Modern Sliding Glass</option>
-                    {windowLibrary.map((w) => (
-                      <option key={w.path} value={w.raw_url || w.download_url}>
-                        {w.name}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
+            {activeTool === "window" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Window Style:
+                </span>
+                <select
+                  value={selectedWindowModelUrl || ""}
+                  onChange={(e) =>
+                    setSelectedWindowModelUrl(e.target.value || null)
+                  }
+                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="">Standard BIM Window</option>
+                  <option value="DOUBLE_CASEMENT_TRANSOM_V1">
+                    Double Casement Transom
+                  </option>
+                  <option value="MODERN_SLIDING_V1">
+                    Modern Sliding Glass
+                  </option>
+                  {windowLibrary.map((w) => (
+                    <option key={w.path} value={w.raw_url || w.download_url}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
-              {activeTool === "stairs" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Stair Style:
-                  </span>
-                  <select
-                    value={selectedStairModelUrl || ""}
-                    onChange={(e) => setSelectedStairModelUrl(e.target.value)}
-                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="FLOATING_SWITCHBACK_V1">Floating Switchback</option>
-                    <option value="SPIRAL_METAL_V1">Spiral Metal</option>
-                    <option value="CONCRETE_PARAMETRIC_V1">Concrete Parametric</option>
+            {activeTool === "stairs" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Stair Style:
+                </span>
+                <select
+                  value={selectedStairModelUrl || ""}
+                  onChange={(e) => setSelectedStairModelUrl(e.target.value)}
+                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="FLOATING_SWITCHBACK_V1">
+                    Floating Switchback
+                  </option>
+                  <option value="SPIRAL_METAL_V1">Spiral Metal</option>
+                  <option value="CONCRETE_PARAMETRIC_V1">
+                    Concrete Parametric
+                  </option>
 
-                    {stairLibrary.map((s) => (
-                      <option key={s.path} value={s.raw_url || s.download_url}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
+                  {stairLibrary.map((s) => (
+                    <option key={s.path} value={s.raw_url || s.download_url}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
-              {activeTool === "roof" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Roof Style:
-                  </span>
-                  <select
-                    value={selectedRoofStyle}
-                    onChange={(e) => setSelectedRoofStyle(e.target.value)}
-                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="modern_flat">Modern Flat Roof</option>
-                    <option value="soft_rounded">Soft Rounded Roof</option>
-                    <option value="sloped_tile">Sloped Tile Roof</option>
-                    <option value="symmetric_gable">Symmetric Gable</option>
-                    <option value="thatched">Thatched Roof</option>
-                  </select>
-                </>
-              )}
+            {activeTool === "roof" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Roof Style:
+                </span>
+                <select
+                  value={selectedRoofStyle}
+                  onChange={(e) => setSelectedRoofStyle(e.target.value)}
+                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="modern_flat">Modern Flat Roof</option>
+                  <option value="soft_rounded">Soft Rounded Roof</option>
+                  <option value="sloped_tile">Sloped Tile Roof</option>
+                  <option value="symmetric_gable">Symmetric Gable</option>
+                  <option value="thatched">Thatched Roof</option>
+                </select>
+              </>
+            )}
 
-              {activeTool === "railing" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Railing Style:
-                  </span>
-                  <select
-                    value={selectedRailingModelUrl || ""}
-                    onChange={(e) => setSelectedRailingModelUrl(e.target.value)}
-                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="">Modern Metal</option>
-                    <option value="horizontal">Horizontal Metal</option>
-                    <option value="glass">Glass Panel</option>
-                    <option value="tree_branch">Tree Branch Railing</option>
-                  </select>
-                </>
-              )}
+            {activeTool === "railing" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Railing Style:
+                </span>
+                <select
+                  value={selectedRailingModelUrl || ""}
+                  onChange={(e) => setSelectedRailingModelUrl(e.target.value)}
+                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="">Modern Metal</option>
+                  <option value="horizontal">Horizontal Metal</option>
+                  <option value="glass">Glass Panel</option>
+                  <option value="tree_branch">Tree Branch Railing</option>
+                </select>
+              </>
+            )}
 
-              {activeTool === "floor" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Floor Style:
-                  </span>
-                  <select
-                    value={selectedFloorModelUrl || ""}
-                    onChange={(e) => setSelectedFloorModelUrl(e.target.value)}
-                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="MARBLE_VITRIFIED_V1">Marble Vitrified</option>
-                    <option value="CONCRETE_TILE_V1">Concrete Tile</option>
-                    <option value="DECORATIVE_MEDALLION_V1">Decorative Medallion</option>
-                    <option value="LUXURY_STONE_V1">Luxury Stone</option>
-                    <option value="CHECKER_CERAMIC_V1">Checker Ceramic</option>
-                    {floorLibrary.map((f) => (
-                      <option key={f.path} value={f.raw_url || f.download_url}>
-                        {f.name}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
+            {activeTool === "floor" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Floor Style:
+                </span>
+                <select
+                  value={selectedFloorModelUrl || ""}
+                  onChange={(e) => setSelectedFloorModelUrl(e.target.value)}
+                  className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="MARBLE_VITRIFIED_V1">Marble Vitrified</option>
+                  <option value="CONCRETE_TILE_V1">Concrete Tile</option>
+                  <option value="DECORATIVE_MEDALLION_V1">
+                    Decorative Medallion
+                  </option>
+                  <option value="LUXURY_STONE_V1">Luxury Stone</option>
+                  <option value="CHECKER_CERAMIC_V1">Checker Ceramic</option>
+                  {floorLibrary.map((f) => (
+                    <option key={f.path} value={f.raw_url || f.download_url}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
-              {activeTool === "furniture" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Library:
-                  </span>
-                  <select
-                    value={selectedFurnitureType || ""}
-                    onChange={(e) =>
-                      setSelectedFurnitureType(e.target.value || null)
-                    }
-                    className="min-w-35 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="">Select Furniture...</option>
-                    {furnitureLibrary.map((item) => (
-                      <option
-                        key={`${item.asset_type}_${item.family}`}
-                        value={`${item.asset_type}_${item.family}`}
-                      >
-                        {item.asset_type} - {item.family}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
-
-              {activeTool === "railing" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Railing Style:
-                  </span>
-                  <select
-                    value={selectedRailingModelUrl || ""}
-                    onChange={(e) => setSelectedRailingModelUrl(e.target.value)}
-                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="MODERN_METAL_V1">Modern Metal</option>
-                    <option value="HORIZONTAL_METAL_V1">Horizontal Metal</option>
-                    <option value="ROOF_GLASS_V1">Roof Glass</option>
-                    <option value="TREE_BRANCH_V1">Tree Branch</option>
-                  </select>
-                </>
-              )}
-
-              {activeTool === "roof" && (
-                <>
-                  <span className="text-[10px] uppercase font-black text-blue-500">
-                    Roof Style:
-                  </span>
-                  <select
-                    value={selectedRoofStyle || ""}
-                    onChange={(e) => setSelectedRoofStyle(e.target.value)}
-                    className="min-w-35 max-w-55 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
-                  >
-                    <option value="modern_flat">Modern Flat Roof</option>
-                    <option value="soft_rounded">Soft Rounded Flat Roof</option>
-                    <option value="sloped_tile">Sloped Tile Roof</option>
-                    <option value="symmetric_gable">Symmetric Gable Roof</option>
-                    <option value="thatched">Thatched Roof</option>
-                  </select>
-                </>
-              )}
-            </div>
-          )}
+            {activeTool === "furniture" && (
+              <>
+                <span className="text-[10px] uppercase font-black text-blue-500">
+                  Library:
+                </span>
+                <select
+                  value={selectedFurnitureType || ""}
+                  onChange={(e) =>
+                    setSelectedFurnitureType(e.target.value || null)
+                  }
+                  className="min-w-35 text-xs border-none bg-transparent focus:ring-0 font-bold text-blue-900 cursor-pointer"
+                >
+                  <option value="">Select Furniture...</option>
+                  {furnitureLibrary.map((item) => (
+                    <option
+                      key={`${item.asset_type}_${item.family}`}
+                      value={`${item.asset_type}_${item.family}`}
+                    >
+                      {item.asset_type} - {item.family}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+        )}
 
         {!selectedLevelId && !isLoadingLevels && levels.length > 0 && (
           <div className="text-xs text-red-600 font-medium">
@@ -2543,6 +2909,22 @@ export default function CADEditor({
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-700">Room Label:</span>
+          <button
+            type="button"
+            onClick={() =>
+              setRoomLabelMode((prev) =>
+                prev === "area" ? "dimensions" : "area",
+              )
+            }
+            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            title="Toggle room label between area and dimensions"
+          >
+            {roomLabelMode === "area" ? "Area" : "Dimensions"}
+          </button>
         </div>
 
         {(() => {
@@ -2614,10 +2996,10 @@ export default function CADEditor({
                         const currentDoor = el as Door;
                         const hostWall = currentDoor.wallId
                           ? (prev.find(
-                            (w) =>
-                              w.type === "wall" &&
-                              w.id === currentDoor.wallId,
-                          ) as Wall | undefined)
+                              (w) =>
+                                w.type === "wall" &&
+                                w.id === currentDoor.wallId,
+                            ) as Wall | undefined)
                           : undefined;
                         const constrained = constrainOpeningOnWall(
                           currentDoor.position,
@@ -2723,10 +3105,10 @@ export default function CADEditor({
                         const currentWindow = el as Window;
                         const hostWall = currentWindow.wallId
                           ? (prev.find(
-                            (w) =>
-                              w.type === "wall" &&
-                              w.id === currentWindow.wallId,
-                          ) as Wall | undefined)
+                              (w) =>
+                                w.type === "wall" &&
+                                w.id === currentWindow.wallId,
+                            ) as Wall | undefined)
                           : undefined;
                         const constrained = constrainOpeningOnWall(
                           currentWindow.position,
@@ -2910,6 +3292,29 @@ export default function CADEditor({
                 true,
               )}
 
+            {/* Room ghost preview */}
+            {activeTool === "room" && isDrawing && startPoint && endPoint && (
+              <Group>
+                <Rect
+                  x={Math.min(startPoint.x, endPoint.x)}
+                  y={Math.min(startPoint.y, endPoint.y)}
+                  width={Math.max(20, Math.abs(endPoint.x - startPoint.x))}
+                  height={Math.max(20, Math.abs(endPoint.y - startPoint.y))}
+                  fill="rgba(59,130,246,0.10)"
+                  stroke="#2563eb"
+                  strokeWidth={2}
+                  dash={[6, 4]}
+                />
+                <KonvaText
+                  x={Math.min(startPoint.x, endPoint.x) + 8}
+                  y={Math.min(startPoint.y, endPoint.y) + 8}
+                  text={`${Math.round(Math.abs(endPoint.x - startPoint.x) * MM_TO_CANVAS)} mm × ${Math.round(Math.abs(endPoint.y - startPoint.y) * MM_TO_CANVAS)} mm`}
+                  fontSize={11}
+                  fill="#1d4ed8"
+                />
+              </Group>
+            )}
+
             {/* Stair ghost preview */}
             {activeTool === "stairs" &&
               previewPos &&
@@ -2966,8 +3371,6 @@ export default function CADEditor({
           </Layer>
         </Stage>
       </div>
-
-
 
       {/* Status Bar */}
       <div className="bg-gray-200 border-t border-gray-300 px-4 py-2 text-sm text-gray-700">

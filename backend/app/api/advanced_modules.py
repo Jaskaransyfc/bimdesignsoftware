@@ -80,6 +80,71 @@ class FixturePlacementRequest(BaseModel):
     fixture_depth_mm: float = 450.0
 
 
+class ElectricalTemplateRequest(BaseModel):
+    room_type: Literal[
+        "classroom",
+        "corridor",
+        "staff_room",
+        "library",
+        "auditorium",
+        "washroom",
+        "lab",
+        "reception",
+    ] = "classroom"
+    room_name: str | None = None
+    room_width_mm: float
+    room_depth_mm: float
+    ceiling_height_mm: float = 3000.0
+    occupancy: int = 0
+    entry_side: Literal["north", "south", "east", "west"] = "south"
+    stage_depth_mm: float = 6000.0
+    seating_rows: int = 0
+    preferred_voltage_v: float = 230.0
+    include_emergency_circuit: bool = True
+
+
+def _point3(x: float, y: float, z: float = 0.0) -> dict[str, float]:
+    return {"x": round(x, 2), "y": round(y, 2), "z": round(z, 2)}
+
+
+def _template_fixture(
+    fixture_id: str,
+    kind: str,
+    x_mm: float,
+    y_mm: float,
+    *,
+    circuit_id: str,
+    wall_side: str | None = None,
+    note: str = "",
+) -> dict[str, Any]:
+    return {
+        "id": fixture_id,
+        "type": kind,
+        "x_mm": round(x_mm, 2),
+        "y_mm": round(y_mm, 2),
+        "elevation_mm": 0.0,
+        "circuit_id": circuit_id,
+        "wall_side": wall_side,
+        "note": note,
+    }
+
+
+def _template_route(start: tuple[float, float], end: tuple[float, float], *, clearance_mm: float = 300.0) -> list[dict[str, float]]:
+    mid_x = (start[0] + end[0]) / 2.0
+    mid_y = (start[1] + end[1]) / 2.0
+    if abs(start[0] - end[0]) >= abs(start[1] - end[1]):
+        bend = (mid_x, start[1])
+    else:
+        bend = (start[0], mid_y)
+    route = [start, bend, end]
+    cleaned: list[dict[str, float]] = []
+    for x, y in route:
+        cleaned.append(_point3(x, y, 0.0))
+    if clearance_mm > 0:
+        cleaned[1]["clearance_mm"] = round(clearance_mm, 2)
+    return cleaned
+
+
 class PipeFlowCheckRequest(BaseModel):
     system: Literal["pipe", "duct", "cable_tray"] = "pipe"
     flow_lps: float = 2.0
@@ -631,6 +696,267 @@ async def mep_fixture_placement(project_id: str, payload: FixturePlacementReques
         },
     }
     _persist_result(project_id, "module-22-mep-fixture-placement.json", result)
+    return result
+
+
+@router.post("/{project_id}/modules/electrical/template-preview")
+async def electrical_template_preview(
+    project_id: str,
+    payload: ElectricalTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    project, elements, model_elements, _materials = await _load_project_bundle(project_id, db)
+    context = _project_context(project, elements, model_elements)
+
+    width_mm = max(float(payload.room_width_mm), 1.0)
+    depth_mm = max(float(payload.room_depth_mm), 1.0)
+    ceiling_height_mm = max(float(payload.ceiling_height_mm), 2400.0)
+    occupancy = max(int(payload.occupancy), 0)
+
+    room_type = payload.room_type
+    template_id = f"edu_{room_type}_v1"
+    base_voltage = max(float(payload.preferred_voltage_v), 110.0)
+    center_x = width_mm / 2.0
+    center_y = depth_mm / 2.0
+    entry_margin = min(900.0, max(450.0, width_mm * 0.12))
+
+    fixtures: list[dict[str, Any]] = []
+    circuits: list[dict[str, Any]] = []
+    manual_edit_hints: list[str] = []
+    rules_used: list[str] = []
+
+    def add_circuit(circuit_id: str, label: str, breaker: str, load_type: str, route_start: tuple[float, float], route_end: tuple[float, float]) -> dict[str, Any]:
+        route = _template_route(route_start, route_end)
+        circuit = {
+            "id": circuit_id,
+            "label": label,
+            "breaker": breaker,
+            "load_type": load_type,
+            "voltage_v": round(base_voltage, 2),
+            "route": route,
+            "length_mm": round(sum(math.hypot(route[i]["x"] - route[i - 1]["x"], route[i]["y"] - route[i - 1]["y"]) for i in range(1, len(route))), 2),
+        }
+        circuits.append(circuit)
+        return circuit
+
+    db_point = (entry_margin, min(ceiling_height_mm * 0.15, depth_mm - 300.0))
+    if payload.entry_side == "north":
+        db_point = (entry_margin, depth_mm - 250.0)
+    elif payload.entry_side == "east":
+        db_point = (width_mm - 250.0, entry_margin)
+    elif payload.entry_side == "west":
+        db_point = (250.0, entry_margin)
+
+    if room_type == "classroom":
+        center_x = width_mm * 0.5
+        center_y = depth_mm * 0.5
+        offset_x = max(900.0, width_mm * 0.16)
+        offset_y = max(700.0, depth_mm * 0.14)
+        light_positions = [
+            (center_x - offset_x, center_y - offset_y),
+            (center_x + offset_x, center_y - offset_y),
+            (center_x - offset_x, center_y + offset_y),
+            (center_x + offset_x, center_y + offset_y),
+        ]
+        socket_y = depth_mm - 250.0
+        socket_positions = [(width_mm * 0.12, socket_y), (width_mm * 0.88, socket_y), (width_mm * 0.12, 250.0), (width_mm * 0.88, 250.0)]
+        switch_positions = [(entry_margin, 200.0), (entry_margin + 140.0, 200.0)]
+        rules_used.extend([
+            "Four ceiling luminaires spread on a 2x2 grid.",
+            "Socket outlets distributed across the front and rear walls.",
+            "Switchboard is placed near the entry side.",
+        ])
+        manual_edit_hints.extend([
+            "Move the rear sockets if the classroom has a teaching wall or projector screen.",
+            "Add a dedicated projector or smart-board socket if needed.",
+        ])
+        add_circuit("ckt_lighting", "Lighting Circuit", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
+        add_circuit("ckt_power", "Socket Circuit", "16A MCB", "power", db_point, (width_mm * 0.88, socket_y))
+        for idx, (x_mm, y_mm) in enumerate(light_positions, start=1):
+            fixtures.append(_template_fixture(f"light_{idx}", "light", x_mm, y_mm, circuit_id="ckt_lighting", note="Ceiling light"))
+        for idx, (x_mm, y_mm) in enumerate(socket_positions, start=1):
+            fixtures.append(_template_fixture(f"socket_{idx}", "socket", x_mm, y_mm, circuit_id="ckt_power", wall_side="north" if y_mm > depth_mm / 2.0 else "south", note="Dual socket outlet"))
+        for idx, (x_mm, y_mm) in enumerate(switch_positions, start=1):
+            fixtures.append(_template_fixture(f"switch_{idx}", "switch", x_mm, y_mm, circuit_id="ckt_lighting", wall_side=payload.entry_side, note="Switch near entry"))
+
+    elif room_type == "corridor":
+        count = max(2, int(round(width_mm / 2400.0)))
+        spacing = width_mm / (count + 1)
+        rules_used.extend([
+            "Linear lighting laid out along the corridor centerline.",
+            "Emergency lights follow the entry-to-exit axis.",
+        ])
+        manual_edit_hints.append("Shift the centerline fixtures if the corridor is dog-legged or has a junction.")
+        add_circuit("ckt_corridor_light", "Corridor Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
+        if payload.include_emergency_circuit:
+            add_circuit("ckt_corridor_emg", "Emergency Circuit", "6A MCB", "emergency", db_point, (width_mm * 0.9, depth_mm * 0.5))
+        for idx in range(count):
+            x_mm = spacing * (idx + 1)
+            fixtures.append(_template_fixture(f"corridor_light_{idx + 1}", "light", x_mm, depth_mm * 0.5, circuit_id="ckt_corridor_light", note="Linear corridor light"))
+        if payload.include_emergency_circuit:
+            fixtures.append(_template_fixture("corridor_emergency_1", "emergency_light", width_mm * 0.08, depth_mm * 0.5, circuit_id="ckt_corridor_emg", note="Exit-side emergency light"))
+            fixtures.append(_template_fixture("corridor_emergency_2", "emergency_light", width_mm * 0.92, depth_mm * 0.5, circuit_id="ckt_corridor_emg", note="Exit-side emergency light"))
+
+    elif room_type == "staff_room":
+        fixtures.extend([
+            _template_fixture("staff_light_1", "light", width_mm * 0.33, depth_mm * 0.35, circuit_id="ckt_staff_light", note="Ceiling light"),
+            _template_fixture("staff_light_2", "light", width_mm * 0.66, depth_mm * 0.65, circuit_id="ckt_staff_light", note="Ceiling light"),
+            _template_fixture("staff_socket_1", "socket", width_mm * 0.12, depth_mm * 0.88, circuit_id="ckt_staff_power", wall_side="south", note="Workstation socket"),
+            _template_fixture("staff_socket_2", "socket", width_mm * 0.88, depth_mm * 0.88, circuit_id="ckt_staff_power", wall_side="south", note="Workstation socket"),
+            _template_fixture("staff_socket_3", "socket", width_mm * 0.12, depth_mm * 0.12, circuit_id="ckt_staff_power", wall_side="north", note="Printer socket"),
+            _template_fixture("staff_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_staff_light", wall_side=payload.entry_side, note="Switch near entry"),
+        ])
+        rules_used.append("Two lighting points and a small socket cluster for desks/printers.")
+        manual_edit_hints.append("Add a dedicated AC or pantry outlet if the staff room needs it.")
+        add_circuit("ckt_staff_light", "Staff Room Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
+        add_circuit("ckt_staff_power", "Staff Room Power", "16A MCB", "power", db_point, (width_mm * 0.88, depth_mm * 0.88))
+
+    elif room_type == "library":
+        grid_cols = 3 if width_mm >= 5000 else 2
+        grid_rows = 2 if depth_mm >= 5000 else 1
+        rules_used.extend([
+            "Ceiling lighting is arranged as a reading grid.",
+            "Power points are concentrated along study table edges.",
+        ])
+        manual_edit_hints.append("Increase the socket count if the library has computer workstations.")
+        add_circuit("ckt_library_light", "Library Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
+        add_circuit("ckt_library_power", "Library Power", "16A MCB", "power", db_point, (width_mm * 0.85, depth_mm * 0.85))
+        for r in range(grid_rows):
+            for c in range(grid_cols):
+                x_mm = (width_mm / (grid_cols + 1)) * (c + 1)
+                y_mm = (depth_mm / (grid_rows + 1)) * (r + 1)
+                fixtures.append(_template_fixture(f"library_light_{r + 1}_{c + 1}", "light", x_mm, y_mm, circuit_id="ckt_library_light", note="Reading light grid"))
+        fixtures.append(_template_fixture("library_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_library_light", wall_side=payload.entry_side, note="Main switch"))
+        for idx, x_mm in enumerate((width_mm * 0.12, width_mm * 0.5, width_mm * 0.88), start=1):
+            fixtures.append(_template_fixture(f"library_socket_{idx}", "socket", x_mm, depth_mm * 0.86, circuit_id="ckt_library_power", wall_side="south", note="Study table socket"))
+
+    elif room_type == "auditorium":
+        rows = max(3, payload.seating_rows or int(round(depth_mm / 3500.0)))
+        light_rows = max(3, min(6, rows))
+        rules_used.extend([
+            "Lighting tracks are distributed above seating rows and stage areas.",
+            "A dedicated stage circuit is isolated from seating circuits.",
+            "Emergency lighting is retained along the entry and exit edges.",
+        ])
+        manual_edit_hints.extend([
+            "Move the stage sockets if there is a fixed projector screen or LED wall.",
+            "If the auditorium is tiered, adjust the y positions to match the stepped seating layout.",
+        ])
+        add_circuit("ckt_auditorium_seating", "Auditorium Seating Lights", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.55))
+        add_circuit("ckt_auditorium_stage", "Auditorium Stage Power", "20A MCB", "stage_power", db_point, (width_mm * 0.5, stage_depth_mm))
+        if payload.include_emergency_circuit:
+            add_circuit("ckt_auditorium_emg", "Auditorium Emergency", "6A MCB", "emergency", db_point, (width_mm * 0.92, depth_mm * 0.5))
+        for row in range(light_rows):
+            y_mm = depth_mm * (0.2 + 0.12 * row)
+            fixtures.append(_template_fixture(f"aud_light_{row + 1}", "light", width_mm * 0.5, y_mm, circuit_id="ckt_auditorium_seating", note="Seating bay light"))
+        fixtures.extend([
+            _template_fixture("aud_stage_light_1", "stage_light", width_mm * 0.25, stage_depth_mm * 0.4, circuit_id="ckt_auditorium_stage", note="Stage wash"),
+            _template_fixture("aud_stage_light_2", "stage_light", width_mm * 0.75, stage_depth_mm * 0.4, circuit_id="ckt_auditorium_stage", note="Stage wash"),
+            _template_fixture("aud_stage_socket_1", "socket", width_mm * 0.18, stage_depth_mm * 0.85, circuit_id="ckt_auditorium_stage", note="Projector / AV socket"),
+            _template_fixture("aud_stage_socket_2", "socket", width_mm * 0.82, stage_depth_mm * 0.85, circuit_id="ckt_auditorium_stage", note="Backline socket"),
+            _template_fixture("aud_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_auditorium_seating", wall_side=payload.entry_side, note="Lighting control"),
+        ])
+        if payload.include_emergency_circuit:
+            fixtures.extend([
+                _template_fixture("aud_emergency_1", "emergency_light", width_mm * 0.08, depth_mm * 0.18, circuit_id="ckt_auditorium_emg", note="Exit light"),
+                _template_fixture("aud_emergency_2", "emergency_light", width_mm * 0.92, depth_mm * 0.18, circuit_id="ckt_auditorium_emg", note="Exit light"),
+            ])
+
+    elif room_type == "washroom":
+        rules_used.extend([
+            "Simple lighting with a small accessory power group.",
+            "Emergency lighting is optional and kept separate.",
+        ])
+        manual_edit_hints.append("Add fan/exhaust and geyser power points if the washroom layout requires them.")
+        add_circuit("ckt_washroom_light", "Washroom Lighting", "6A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
+        add_circuit("ckt_washroom_power", "Washroom Power", "16A MCB", "power", db_point, (width_mm * 0.8, depth_mm * 0.8))
+        fixtures.extend([
+            _template_fixture("wash_light_1", "light", width_mm * 0.5, depth_mm * 0.35, circuit_id="ckt_washroom_light", note="Ceiling light"),
+            _template_fixture("wash_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_washroom_light", wall_side=payload.entry_side, note="Entry switch"),
+            _template_fixture("wash_socket_1", "socket", width_mm * 0.82, depth_mm * 0.78, circuit_id="ckt_washroom_power", wall_side="south", note="Accessory socket"),
+        ])
+        if payload.include_emergency_circuit:
+            add_circuit("ckt_washroom_emg", "Washroom Emergency", "6A MCB", "emergency", db_point, (width_mm * 0.9, depth_mm * 0.5))
+            fixtures.append(_template_fixture("wash_emergency_1", "emergency_light", width_mm * 0.12, depth_mm * 0.88, circuit_id="ckt_washroom_emg", note="Emergency light"))
+
+    elif room_type == "lab":
+        bench_count = max(2, int(round(width_mm / 2400.0)))
+        rules_used.extend([
+            "Lighting is placed on the working grid.",
+            "Socket density is higher to support lab benches and equipment.",
+        ])
+        manual_edit_hints.extend([
+            "Increase protected outlets if the lab has equipment islands.",
+            "Keep emergency isolation near the door if the lab requires shutdown control.",
+        ])
+        add_circuit("ckt_lab_light", "Lab Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
+        add_circuit("ckt_lab_power", "Lab Power", "20A MCB", "power", db_point, (width_mm * 0.85, depth_mm * 0.85))
+        if payload.include_emergency_circuit:
+            add_circuit("ckt_lab_emg", "Lab Emergency", "6A MCB", "emergency", db_point, (width_mm * 0.9, depth_mm * 0.5))
+        for idx in range(max(2, bench_count)):
+            x_mm = (width_mm / (bench_count + 1)) * (idx + 1)
+            fixtures.append(_template_fixture(f"lab_light_{idx + 1}", "light", x_mm, depth_mm * 0.32, circuit_id="ckt_lab_light", note="Bench light"))
+            fixtures.append(_template_fixture(f"lab_socket_{idx + 1}", "socket", x_mm, depth_mm * 0.82, circuit_id="ckt_lab_power", wall_side="south", note="Bench socket"))
+        fixtures.extend([
+            _template_fixture("lab_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_lab_light", wall_side=payload.entry_side, note="Light switch"),
+            _template_fixture("lab_switch_2", "switch", entry_margin + 140.0, 180.0, circuit_id="ckt_lab_light", wall_side=payload.entry_side, note="Master switch"),
+        ])
+        if payload.include_emergency_circuit:
+            fixtures.append(_template_fixture("lab_emergency_1", "emergency_light", width_mm * 0.08, depth_mm * 0.12, circuit_id="ckt_lab_emg", note="Emergency exit light"))
+
+    else:  # reception
+        rules_used.extend([
+            "Front desk sockets are grouped near the reception counter.",
+            "Ambient lighting is centered above the waiting area.",
+        ])
+        manual_edit_hints.append("Move the desk sockets if the counter orientation changes after furniture placement.")
+        add_circuit("ckt_reception_light", "Reception Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
+        add_circuit("ckt_reception_power", "Reception Power", "16A MCB", "power", db_point, (width_mm * 0.88, depth_mm * 0.78))
+        fixtures.extend([
+            _template_fixture("rec_light_1", "light", center_x, depth_mm * 0.33, circuit_id="ckt_reception_light", note="Ambient light"),
+            _template_fixture("rec_light_2", "light", center_x, depth_mm * 0.68, circuit_id="ckt_reception_light", note="Ambient light"),
+            _template_fixture("rec_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_reception_light", wall_side=payload.entry_side, note="Main switch"),
+            _template_fixture("rec_socket_1", "socket", width_mm * 0.82, depth_mm * 0.78, circuit_id="ckt_reception_power", wall_side="south", note="Counter socket"),
+            _template_fixture("rec_socket_2", "socket", width_mm * 0.72, depth_mm * 0.78, circuit_id="ckt_reception_power", wall_side="south", note="Printer socket"),
+        ])
+
+    if not rules_used:
+        rules_used.append("Template generated with standard educational-building assumptions.")
+
+    fixture_count_by_type: dict[str, int] = {}
+    for fixture in fixtures:
+        fixture_count_by_type[fixture["type"]] = fixture_count_by_type.get(fixture["type"], 0) + 1
+
+    result = {
+        "project_id": project_id,
+        "project_name": project.name,
+        "template_id": template_id,
+        "room": {
+            "name": payload.room_name or room_type.replace("_", " ").title(),
+            "type": room_type,
+            "width_mm": round(width_mm, 2),
+            "depth_mm": round(depth_mm, 2),
+            "ceiling_height_mm": round(ceiling_height_mm, 2),
+            "occupancy": occupancy,
+            "entry_side": payload.entry_side,
+        },
+        "summary": {
+            "fixtures": len(fixtures),
+            "circuits": len(circuits),
+            "light_points": fixture_count_by_type.get("light", 0) + fixture_count_by_type.get("stage_light", 0),
+            "socket_points": fixture_count_by_type.get("socket", 0),
+            "emergency_points": fixture_count_by_type.get("emergency_light", 0),
+        },
+        "fixtures": fixtures,
+        "circuits": circuits,
+        "rules_used": rules_used,
+        "manual_edit_hints": manual_edit_hints,
+        "project_context": {
+            "estimated_floor_area_m2": context["estimated_floor_area_m2"],
+            "routing_obstacles": len(context["routing_obstacles"]),
+        },
+    }
+    _persist_result(project_id, "module-24-electrical-template.json", result)
     return result
 
 

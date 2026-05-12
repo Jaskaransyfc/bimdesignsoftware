@@ -14,13 +14,15 @@ export type ElementType =
   | "room"
   | "dimension"
   | "text"
+  | "polyline"
   | "line"
   | "arc"
   | "beam"
   | "stairs"
   | "floor"
   | "railing"
-  | "roof";
+  | "roof"
+  | "electrical_fixture";
 
 export interface Stair {
   id: string;
@@ -64,6 +66,28 @@ export interface Roof {
   rotation?: number;
   color?: string;
   metadata?: any;
+}
+
+export interface ElectricalFixture {
+  id: string;
+  type: "electrical_fixture";
+  position: Point2D;
+  width: number;
+  height: number;
+  rotation?: number;
+  color?: string;
+  fixtureType:
+    | "light"
+    | "socket"
+    | "switch"
+    | "emergency_light"
+    | "stage_light";
+  circuitId?: string;
+  roomType?: string;
+  wallSide?: string | null;
+  voltageV?: number;
+  elevationMm?: number;
+  metadata?: Record<string, any>;
 }
 
 export interface Point2D {
@@ -162,6 +186,15 @@ export interface TextElement {
   color?: string;
 }
 
+export interface Polyline {
+  id: string;
+  type: "polyline";
+  points: number[]; // flat [x1,y1,x2,y2,...] in canvas units
+  stroke?: string;
+  strokeWidth?: number;
+  metadata?: Record<string, any>;
+}
+
 export interface DrawingElement {
   id: string;
   type: ElementType;
@@ -182,6 +215,8 @@ export type Element =
   | Floor
   | Railing
   | Roof
+  | ElectricalFixture
+  | Polyline
   | DrawingElement;
 
 // ─────────────────────────────────────────────────────────

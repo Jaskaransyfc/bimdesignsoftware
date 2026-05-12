@@ -50,7 +50,7 @@ import {
   renderCarpet,
   renderIndianCoveCeiling,
   renderFloatingCoveCeiling,
-  renderWoodenPanelCeiling
+  renderWoodenPanelCeiling,
 } from "./modeling/items";
 import {
   renderSlidingGlassWindow,
@@ -62,7 +62,7 @@ import {
   renderPatternWindow,
   renderOvalWindow,
   renderCurvedWindow,
-  renderSemiCurvedWindow
+  renderSemiCurvedWindow,
 } from "./modeling/windows";
 import {
   renderModernMetalRailing,
@@ -105,7 +105,17 @@ import {
   renderSymmetricGableRoof,
   renderThatchedRoof,
 } from "./modeling/roofs";
-import { Door, Element, FurnitureItem, Window, Wall, Railing, Roof } from "@/types/modeling";
+import {
+  Door,
+  Element,
+  ElectricalFixture,
+  FurnitureItem,
+  Polyline,
+  Window,
+  Wall,
+  Railing,
+  Roof,
+} from "@/types/modeling";
 
 interface Model3DPreviewProps {
   elements: Element[];
@@ -240,8 +250,6 @@ export default function Model3DPreview({
     );
     // camera.position.set(120, 120, 140); // Will be set by controls later if not in ref
 
-
-
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -363,7 +371,9 @@ export default function Model3DPreview({
       const isGlass = assetName?.toLowerCase().includes("glass");
       const baseColor = isGlass ? "#93c5fd" : "#4a3122"; // Blueish for glass, wood-brown otherwise
 
-      const isSelected = selectedElementId !== undefined && assetName?.includes(selectedElementId || "___NONE___");
+      const isSelected =
+        selectedElementId !== undefined &&
+        assetName?.includes(selectedElementId || "___NONE___");
 
       obj.traverse((child: any) => {
         if (child instanceof THREE.Mesh) {
@@ -492,11 +502,11 @@ export default function Model3DPreview({
             prev.map((item) =>
               item.id === id
                 ? {
-                  ...item,
-                  x,
-                  y,
-                  z,
-                }
+                    ...item,
+                    x,
+                    y,
+                    z,
+                  }
                 : item,
             ),
           );
@@ -533,6 +543,35 @@ export default function Model3DPreview({
 
     const model3D = convert2DTo3D(elements, projectId);
     const wallById = new Map(model3D.walls.map((wall) => [wall.id, wall]));
+    const electricalFixtures = elements.filter(
+      (element): element is ElectricalFixture =>
+        element.type === "electrical_fixture",
+    );
+    const circuitLines = elements.filter(
+      (element): element is Polyline => element.type === "polyline",
+    );
+    const selectedElement =
+      selectedElementId != null
+        ? (elements.find((element) => element.id === selectedElementId) ?? null)
+        : null;
+    const selectedCircuitId =
+      selectedElement?.type === "electrical_fixture"
+        ? selectedElement.circuitId ||
+          selectedElement.metadata?.circuitId ||
+          null
+        : selectedElement?.type === "polyline"
+          ? selectedElement.metadata?.circuitId || null
+          : null;
+    const selectedBranchIds =
+      selectedElement?.type === "electrical_fixture"
+        ? new Set(
+            circuitLines
+              .filter(
+                (circuit) => circuit.metadata?.branchId === selectedElement.id,
+              )
+              .map((circuit) => circuit.id),
+          )
+        : new Set<string>();
     const doorById = new Map(
       elements
         .filter((element): element is Door => element.type === "door")
@@ -554,6 +593,52 @@ export default function Model3DPreview({
       const dir = { x: dx / len, z: dz / len };
       const normal = { x: -dir.z, z: dir.x };
       return { dir, normal, wallUnitX: dir.x, wallUnitY: dir.z };
+    };
+
+    const clamp = (value: number, min: number, max: number) =>
+      Math.min(max, Math.max(min, value));
+
+    const projectFixtureToWall = (
+      fixture: ElectricalFixture,
+      wall: {
+        startPoint: { x: number; y: number };
+        endPoint: { x: number; y: number };
+        thickness?: number;
+      },
+    ) => {
+      const { dir, normal } = getWallVectors(wall);
+      const fixtureWorldX = fixture.position.x / PLAN_SCALE;
+      const fixtureWorldZ = fixture.position.y / PLAN_SCALE;
+      const wallStartWorld = {
+        x: wall.startPoint.x / PLAN_SCALE,
+        z: wall.startPoint.y / PLAN_SCALE,
+      };
+      const wallEndWorld = {
+        x: wall.endPoint.x / PLAN_SCALE,
+        z: wall.endPoint.y / PLAN_SCALE,
+      };
+      const wallLength = Math.hypot(
+        wallEndWorld.x - wallStartWorld.x,
+        wallEndWorld.z - wallStartWorld.z,
+      );
+      const relX = fixtureWorldX - wallStartWorld.x;
+      const relZ = fixtureWorldZ - wallStartWorld.z;
+      const distAlongWall = clamp(
+        relX * dir.x + relZ * dir.z,
+        0,
+        wallLength || 0,
+      );
+      const centerX = wallStartWorld.x + dir.x * distAlongWall;
+      const centerZ = wallStartWorld.z + dir.z * distAlongWall;
+      const thicknessOffset = (wall.thickness || 0) / MM_SCALE / 2;
+      const fixtureOffset = Math.max(0.12, thicknessOffset + 0.08);
+      const wallSide = (fixture as any).metadata?.wallSide ?? fixture.wallSide;
+      const sideSign = wallSide === "outside" ? -1 : 1;
+
+      return {
+        x: centerX + normal.x * fixtureOffset * sideSign,
+        z: centerZ + normal.z * fixtureOffset * sideSign,
+      };
     };
 
     const projectOpeningCenterToWall = (
@@ -659,7 +744,7 @@ export default function Model3DPreview({
 
           const sillH =
             (op.type === "window"
-              ? (op as any).position?.z ?? (op as any).sillHeight ?? 900
+              ? ((op as any).position?.z ?? (op as any).sillHeight ?? 900)
               : 0) / MM_SCALE;
 
           const xStart = distAlongWall - opW / 2;
@@ -686,57 +771,161 @@ export default function Model3DPreview({
       const materialName = wall.material?.toLowerCase() || "";
 
       if (materialName.includes("clear_glass_partition")) {
-        renderClearGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        renderClearGlassPartition(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("frosted_glass_partition")) {
-        renderFrostedGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        renderFrostedGlassPartition(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("ribbed_glass_partition")) {
-        renderRibbedGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        renderRibbedGlassPartition(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("smoked_glass_partition")) {
-        renderSmokedGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        renderSmokedGlassPartition(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("gradient_glass_partition")) {
-        renderGradientGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        renderGradientGlassPartition(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("colored_laminated_partition")) {
-        renderColoredLaminatedPartition(scene, px, pz, length, height, rotation, isSelected);
+        renderColoredLaminatedPartition(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("oak_slat_partition")) {
-        renderOakSlatPartition(scene, px, pz, length, height, rotation, isSelected);
+        renderOakSlatPartition(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("ash_wood_partition")) {
-        renderAshWoodPartition(scene, px, pz, length, height, rotation, isSelected);
+        renderAshWoodPartition(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("matte_black_wood_partition")) {
-        renderMatteBlackWoodPartition(scene, px, pz, length, height, rotation, isSelected);
+        renderMatteBlackWoodPartition(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
 
       // Compound Walls
       if (materialName.includes("exposed_concrete_compound")) {
-        renderExposedConcreteCompoundWall(scene, px, pz, length, height, rotation, isSelected);
+        renderExposedConcreteCompoundWall(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("natural_stone_compound")) {
-        renderNaturalStoneCompoundWall(scene, px, pz, length, height, rotation, isSelected);
+        renderNaturalStoneCompoundWall(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("wooden_slat_compound")) {
-        renderWoodenSlatCompoundWall(scene, px, pz, length, height, rotation, isSelected);
+        renderWoodenSlatCompoundWall(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
       if (materialName.includes("brick_texture_compound")) {
-        renderBrickTextureCompoundWall(scene, px, pz, length, height, rotation, isSelected);
+        renderBrickTextureCompoundWall(
+          scene,
+          px,
+          pz,
+          length,
+          height,
+          rotation,
+          isSelected,
+        );
         return;
       }
 
@@ -753,7 +942,7 @@ export default function Model3DPreview({
           height,
           processedOpenings,
           isSelected,
-          wall.color
+          wall.color,
         );
       } else if (
         [
@@ -777,7 +966,7 @@ export default function Model3DPreview({
           thickness,
           height,
           processedOpenings,
-          isSelected
+          isSelected,
         );
       } else {
         material = renderStandardBIMWall(
@@ -790,13 +979,19 @@ export default function Model3DPreview({
           height,
           processedOpenings,
           isSelected,
-          wall.color
+          wall.color,
         );
       }
 
       // Add corner fillers (cylinders) to hide gaps between walls at angles
-      const fillerGeom = new THREE.CylinderGeometry(thickness / 2, thickness / 2, height, 16);
-      const fillerMat = material || new THREE.MeshStandardMaterial({ color: "#ffffff" });
+      const fillerGeom = new THREE.CylinderGeometry(
+        thickness / 2,
+        thickness / 2,
+        height,
+        16,
+      );
+      const fillerMat =
+        material || new THREE.MeshStandardMaterial({ color: "#ffffff" });
 
       const startFiller = new THREE.Mesh(fillerGeom, fillerMat);
       startFiller.position.set(
@@ -874,7 +1069,9 @@ export default function Model3DPreview({
         const px = railing.position.x / PLAN_SCALE;
         const pz = railing.position.y / PLAN_SCALE;
         const rotation = (railing.rotation || 0) * (Math.PI / 180);
-        const style = String(railing.metadata?.railing_style || "").toLowerCase();
+        const style = String(
+          railing.metadata?.railing_style || "",
+        ).toLowerCase();
 
         if (style === "horizontal") {
           renderHorizontalMetalRailing(scene, px, pz, railL, railH, -rotation);
@@ -899,15 +1096,56 @@ export default function Model3DPreview({
         const isSelected = selectedElementId === roof.id;
 
         if (style === "soft_rounded") {
-          renderSoftRoundedFlatRoof(scene, px, pz, roofW, roofD, 0.26, -rotation, isSelected);
+          renderSoftRoundedFlatRoof(
+            scene,
+            px,
+            pz,
+            roofW,
+            roofD,
+            0.26,
+            -rotation,
+            isSelected,
+          );
         } else if (style === "sloped_tile") {
-          renderSlopedTileRoof(scene, px, pz, roofW, roofD, -rotation, isSelected);
+          renderSlopedTileRoof(
+            scene,
+            px,
+            pz,
+            roofW,
+            roofD,
+            -rotation,
+            isSelected,
+          );
         } else if (style === "symmetric_gable") {
-          renderSymmetricGableRoof(scene, px, pz, roofW, roofD, -rotation, isSelected);
+          renderSymmetricGableRoof(
+            scene,
+            px,
+            pz,
+            roofW,
+            roofD,
+            -rotation,
+            isSelected,
+          );
         } else if (style === "thatched") {
-          renderThatchedRoof(scene, px, pz, roofW, roofD, -rotation, isSelected);
+          renderThatchedRoof(
+            scene,
+            px,
+            pz,
+            roofW,
+            roofD,
+            -rotation,
+            isSelected,
+          );
         } else {
-          renderModernFlatRoof(scene, px, pz, roofW, roofD, -rotation, isSelected);
+          renderModernFlatRoof(
+            scene,
+            px,
+            pz,
+            roofW,
+            roofD,
+            -rotation,
+            isSelected,
+          );
         }
       });
 
@@ -1031,7 +1269,10 @@ export default function Model3DPreview({
           return;
         }
 
-        if (doorStyle === "geometric_double" || doorStyle === "geometric_double_glass") {
+        if (
+          doorStyle === "geometric_double" ||
+          doorStyle === "geometric_double_glass"
+        ) {
           renderGeometricArtGlassDoor(
             scene,
             px,
@@ -1046,7 +1287,10 @@ export default function Model3DPreview({
           return;
         }
 
-        if (doorStyle === "luxury_white_gold" || doorStyle === "luxury_gold_glass") {
+        if (
+          doorStyle === "luxury_white_gold" ||
+          doorStyle === "luxury_gold_glass"
+        ) {
           renderLuxuryGoldGlassDoor(
             scene,
             px,
@@ -1061,7 +1305,10 @@ export default function Model3DPreview({
           return;
         }
 
-        if (doorStyle === "modern_sliding" || doorStyle === "modern_sliding_glass") {
+        if (
+          doorStyle === "modern_sliding" ||
+          doorStyle === "modern_sliding_glass"
+        ) {
           renderModernSlidingGlassDoor(
             scene,
             px,
@@ -1230,7 +1477,9 @@ export default function Model3DPreview({
 
     model3D.windows.forEach((window_) => {
       const winW = Math.max(window_.width / MM_SCALE, 0.1);
-      const hostWall = window_.wallId ? wallById.get(window_.wallId) : undefined;
+      const hostWall = window_.wallId
+        ? wallById.get(window_.wallId)
+        : undefined;
       const vectors = hostWall ? getWallVectors(hostWall) : null;
       const wallHeight = hostWall ? hostWall.height / MM_SCALE : 3.0;
 
@@ -1268,56 +1517,120 @@ export default function Model3DPreview({
 
         if (windowStyle === "double_casement_transom") {
           renderDoubleCasementTransomWindow(
-            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
           );
           return;
         }
-        
+
         if (windowStyle === "triple_casement") {
           renderTripleCasementWindow(
-            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
           );
           return;
         }
 
         if (windowStyle === "circular_fixed") {
           renderCircularWindow(
-            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
           );
           return;
         }
 
         if (windowStyle === "triangle_casement") {
           renderTriangleWindow(
-            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
           );
           return;
         }
 
         if (windowStyle === "pattern_arch") {
           renderPatternWindow(
-            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
           );
           return;
         }
 
         if (windowStyle === "oval_grille") {
           renderOvalWindow(
-            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
           );
           return;
         }
 
         if (windowStyle === "curved_arch") {
           renderCurvedWindow(
-            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
           );
           return;
         }
 
         if (windowStyle === "semi_curved_grille") {
           renderSemiCurvedWindow(
-            scene, px, pz, vectors, winW, winH, sillHeight, hostWall, selectedElementId === window_.id
+            scene,
+            px,
+            pz,
+            vectors,
+            winW,
+            winH,
+            sillHeight,
+            hostWall,
+            selectedElementId === window_.id,
           );
           return;
         }
@@ -1482,17 +1795,14 @@ export default function Model3DPreview({
           floorStyle === "marble_vitrified" ||
           modelUrl === "MARBLE_VITRIFIED_V1";
         const isConcrete =
-          floorStyle === "concrete_tile" ||
-          modelUrl === "CONCRETE_TILE_V1";
+          floorStyle === "concrete_tile" || modelUrl === "CONCRETE_TILE_V1";
         const isDecorative =
           floorStyle === "decorative_medallion" ||
           modelUrl === "DECORATIVE_MEDALLION_V1";
         const isLuxury =
-          floorStyle === "luxury_stone" ||
-          modelUrl === "LUXURY_STONE_V1";
+          floorStyle === "luxury_stone" || modelUrl === "LUXURY_STONE_V1";
         const isChecker =
-          floorStyle === "checker_ceramic" ||
-          modelUrl === "CHECKER_CERAMIC_V1";
+          floorStyle === "checker_ceramic" || modelUrl === "CHECKER_CERAMIC_V1";
 
         if (isMarble) {
           renderMarbleVitrifiedFloor(
@@ -1575,7 +1885,7 @@ export default function Model3DPreview({
           renderFloatingSwitchbackStairs(
             scene,
             stair,
-            selectedElementId === stair.id
+            selectedElementId === stair.id,
           );
         } else if (stairStyle === "spiral_metal") {
           renderSpiralMetalStairs(scene, stair, selectedElementId === stair.id);
@@ -1668,11 +1978,14 @@ export default function Model3DPreview({
         id: item.id,
       };
 
-      const isCeilingItem = item.assetType.includes("CEILING") || item.assetType.includes("FAN");
+      const isCeilingItem =
+        item.assetType.includes("CEILING") || item.assetType.includes("FAN");
       if (isCeilingItem) {
         let maxWallHeight = 3.0; // Default 3000mm
         if (model3D.walls && model3D.walls.length > 0) {
-          maxWallHeight = Math.max(...model3D.walls.map(w => w.height / MM_SCALE));
+          maxWallHeight = Math.max(
+            ...model3D.walls.map((w) => w.height / MM_SCALE),
+          );
         }
 
         // Ensure object bounds are calculated
@@ -1680,7 +1993,7 @@ export default function Model3DPreview({
         const box = new THREE.Box3().setFromObject(mesh);
         if (!box.isEmpty()) {
           // Snap the TOP of the object to the ceiling height
-          mesh.position.y += (maxWallHeight - box.max.y);
+          mesh.position.y += maxWallHeight - box.max.y;
         }
       } else {
         snapObjectToGround(mesh);
@@ -1690,6 +2003,102 @@ export default function Model3DPreview({
       interactiveObjects.push(mesh);
 
       console.log(`✅ Added ${item.assetType} (${item.family}) to scene`);
+    });
+
+    electricalFixtures.forEach((fixture) => {
+      const kind = fixture.fixtureType;
+      const colorByKind: Record<ElectricalFixture["fixtureType"], string> = {
+        light: "#facc15",
+        socket: "#60a5fa",
+        switch: "#34d399",
+        emergency_light: "#fb7185",
+        stage_light: "#f97316",
+      };
+      const elevationMm =
+        fixture.elevationMm ??
+        (kind === "socket"
+          ? 1200
+          : kind === "switch"
+            ? 1350
+            : kind === "emergency_light"
+              ? 2200
+              : kind === "stage_light"
+                ? 1800
+                : 2800);
+      const elevation = elevationMm / MM_TO_CANVAS;
+      const size =
+        kind === "light" ? 0.45 : kind === "stage_light" ? 0.4 : 0.28;
+      const geom = new THREE.BoxGeometry(size, size, size);
+      const material = new THREE.MeshStandardMaterial({
+        color: colorByKind[kind] || fixture.color || "#60a5fa",
+        roughness: 0.35,
+        metalness: 0.08,
+        emissive:
+          kind === "light" || kind === "emergency_light"
+            ? new THREE.Color(colorByKind[kind] || "#ffffff")
+            : new THREE.Color("#000000"),
+        emissiveIntensity:
+          kind === "light" || kind === "emergency_light" ? 0.45 : 0,
+      });
+      const mesh = new THREE.Mesh(geom, material);
+      const hostWallId =
+        (fixture as any).wallId ?? fixture.metadata?.wall_assigned;
+      const hostWall = hostWallId ? wallById.get(hostWallId) : undefined;
+      const worldPosition = hostWall
+        ? projectFixtureToWall(fixture, hostWall)
+        : {
+            x: fixture.position.x / PLAN_SCALE,
+            z: fixture.position.y / PLAN_SCALE,
+          };
+
+      mesh.position.set(worldPosition.x, elevation + size / 2, worldPosition.z);
+      mesh.scale.set(
+        kind === "switch" || kind === "socket" ? 1.25 : 1,
+        kind === "switch" || kind === "socket" ? 1.25 : 1,
+        kind === "switch" || kind === "socket" ? 1.25 : 1,
+      );
+      mesh.renderOrder = 1000;
+      mesh.userData = {
+        kind: "electrical_fixture",
+        id: fixture.id,
+      };
+      scene.add(mesh);
+      interactiveObjects.push(mesh);
+    });
+
+    circuitLines.forEach((circuit) => {
+      const circuitId = circuit.metadata?.circuitId || circuit.id;
+      const isSelected =
+        selectedElementId === circuit.id ||
+        selectedCircuitId === circuitId ||
+        selectedBranchIds.has(circuit.id);
+      const points = circuit.points || [];
+      const vertices: THREE.Vector3[] = [];
+      for (let i = 0; i < points.length; i += 2) {
+        vertices.push(
+          new THREE.Vector3(
+            points[i] / PLAN_SCALE,
+            0.08,
+            points[i + 1] / PLAN_SCALE,
+          ),
+        );
+      }
+      if (vertices.length < 2) return;
+
+      const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
+      const material = new THREE.LineBasicMaterial({
+        color: isSelected ? "#f59e0b" : "#94a3b8",
+        transparent: true,
+        opacity: isSelected ? 1 : 0.78,
+      });
+      const line = new THREE.Line(geometry, material);
+      line.userData = {
+        kind: "electrical_circuit",
+        id: circuit.id,
+        circuitId,
+      };
+      scene.add(line);
+      interactiveObjects.push(line);
     });
 
     // Load imported GLTF/GLB models

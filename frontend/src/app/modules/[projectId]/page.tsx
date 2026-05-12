@@ -19,6 +19,7 @@ import {
   Ruler,
   Zap,
 } from "lucide-react";
+import { formatImperial } from "@/lib/calculations";
 
 type ModuleContext = {
   project_id: string;
@@ -70,6 +71,83 @@ type ModuleContext = {
     energy: boolean;
     rendering: boolean;
   };
+};
+
+type ElectricalTemplateForm = {
+  room_id?: string;
+  room_type:
+    | "classroom"
+    | "corridor"
+    | "staff_room"
+    | "library"
+    | "auditorium"
+    | "washroom"
+    | "lab"
+    | "reception";
+  room_name: string;
+  room_width_mm: number;
+  room_depth_mm: number;
+  ceiling_height_mm: number;
+  occupancy: number;
+  entry_side: "north" | "south" | "east" | "west";
+  stage_depth_mm: number;
+  seating_rows: number;
+  preferred_voltage_v: number;
+  include_emergency_circuit: boolean;
+};
+
+type ElectricalTemplateResult = {
+  project_id: string;
+  project_name: string;
+  template_id: string;
+  room: {
+    name: string;
+    type: ElectricalTemplateForm["room_type"];
+    width_mm: number;
+    depth_mm: number;
+    ceiling_height_mm: number;
+    occupancy: number;
+    entry_side: ElectricalTemplateForm["entry_side"];
+  };
+  summary: {
+    fixtures: number;
+    circuits: number;
+    light_points: number;
+    socket_points: number;
+    emergency_points: number;
+  };
+  fixtures: Array<{
+    id: string;
+    type: string;
+    x_mm: number;
+    y_mm: number;
+    elevation_mm: number;
+    circuit_id: string;
+    wall_side: string | null;
+    note: string;
+  }>;
+  circuits: Array<{
+    id: string;
+    label: string;
+    breaker: string;
+    load_type: string;
+    voltage_v: number;
+    route: Array<{ x: number; y: number; z: number; clearance_mm?: number }>;
+    length_mm: number;
+  }>;
+  rules_used: string[];
+  manual_edit_hints: string[];
+};
+
+type DetectedRoom = {
+  id: string;
+  name: string;
+  width_mm: number;
+  depth_mm: number;
+  origin_x_mm: number;
+  origin_y_mm: number;
+  area_m2: number;
+  type?: string;
 };
 
 type RebarResult = {
@@ -355,12 +433,14 @@ function NumberField({
   onChange,
   step = 1,
   min,
+  helper,
 }: {
   label: string;
   value: number;
   onChange: (value: number) => void;
   step?: number;
   min?: number;
+  helper?: string;
 }) {
   return (
     <label className="space-y-1 text-sm">
@@ -375,6 +455,101 @@ function NumberField({
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none transition focus:border-blue-500"
       />
+      {helper ? (
+        <span className="block text-xs text-slate-500">{helper}</span>
+      ) : null}
+    </label>
+  );
+}
+
+function mmToFeetInches(mm: number): { feet: number; inches: number } {
+  const totalInches = Math.max(0, mm) / 25.4;
+  const feet = Math.floor(totalInches / 12);
+  const inches = Math.round(totalInches % 12);
+  return { feet, inches };
+}
+
+function feetInchesToMm(feet: number, inches: number): number {
+  const safeFeet = Number.isFinite(feet) ? feet : 0;
+  const safeInches = Number.isFinite(inches) ? inches : 0;
+  return Math.max(0, Math.round((safeFeet * 12 + safeInches) * 25.4));
+}
+
+function MeasurementField({
+  label,
+  valueMm,
+  onChangeMm,
+  unitMode,
+  minMm,
+  helper,
+}: {
+  label: string;
+  valueMm: number;
+  onChangeMm: (valueMm: number) => void;
+  unitMode: "mm" | "imperial";
+  minMm?: number;
+  helper?: string;
+}) {
+  const imperial = mmToFeetInches(valueMm);
+
+  return (
+    <label className="space-y-1 text-sm">
+      <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+        {label}
+      </span>
+      {unitMode === "mm" ? (
+        <>
+          <input
+            type="number"
+            value={valueMm}
+            min={minMm}
+            onChange={(e) => onChangeMm(Number(e.target.value))}
+            className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none transition focus:border-blue-500"
+          />
+          <span className="block text-xs text-slate-500">
+            {helper || `Stored in mm`}
+          </span>
+        </>
+      ) : (
+        <div className="grid grid-cols-[1fr_1fr] gap-2">
+          <label className="space-y-1">
+            <span className="block text-[10px] uppercase tracking-wider text-slate-500">
+              Feet
+            </span>
+            <input
+              type="number"
+              min={0}
+              value={imperial.feet}
+              onChange={(e) =>
+                onChangeMm(
+                  feetInchesToMm(Number(e.target.value), imperial.inches),
+                )
+              }
+              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none transition focus:border-blue-500"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="block text-[10px] uppercase tracking-wider text-slate-500">
+              Inches
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={11}
+              value={imperial.inches}
+              onChange={(e) =>
+                onChangeMm(
+                  feetInchesToMm(imperial.feet, Number(e.target.value)),
+                )
+              }
+              className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none transition focus:border-blue-500"
+            />
+          </label>
+          <span className="col-span-2 block text-xs text-slate-500">
+            {helper || `Stored as ${valueMm} mm`}
+          </span>
+        </div>
+      )}
     </label>
   );
 }
@@ -510,6 +685,27 @@ export default function AdvancedModulesPage() {
   const [clearanceResult, setClearanceResult] =
     useState<ClearanceResult | null>(null);
   const [mepBusy, setMepBusy] = useState(false);
+
+  const [electricalForm, setElectricalForm] = useState<ElectricalTemplateForm>({
+    room_type: "classroom",
+    room_name: "Classroom",
+    room_width_mm: 7200,
+    room_depth_mm: 6000,
+    ceiling_height_mm: 3300,
+    occupancy: 40,
+    entry_side: "south",
+    stage_depth_mm: 6000,
+    seating_rows: 0,
+    preferred_voltage_v: 230,
+    include_emergency_circuit: true,
+  });
+  const [electricalRooms, setElectricalRooms] = useState<DetectedRoom[]>([]);
+  const [electricalResult, setElectricalResult] =
+    useState<ElectricalTemplateResult | null>(null);
+  const [electricalBusy, setElectricalBusy] = useState(false);
+  const [electricalUnits, setElectricalUnits] = useState<"mm" | "imperial">(
+    "imperial",
+  );
 
   const [flowForm, setFlowForm] = useState<FlowForm>({
     system: "pipe",
@@ -663,7 +859,71 @@ export default function AdvancedModulesPage() {
       ...prev,
       ...context.energy_defaults,
     }));
+
+    setElectricalForm((prev) => ({
+      ...prev,
+      room_width_mm: Math.max(
+        prev.room_width_mm,
+        Math.round(context.bbox_mm.width || prev.room_width_mm),
+      ),
+      room_depth_mm: Math.max(
+        prev.room_depth_mm,
+        Math.round(context.bbox_mm.depth || prev.room_depth_mm),
+      ),
+      occupancy: Math.max(prev.occupancy, context.energy_defaults.occupancy),
+    }));
   }, [context]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    const loadRooms = async () => {
+      try {
+        const res = await fetch(
+          `${apiBase()}/api/projects/${projectId}/drawing`,
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const rooms = Array.isArray(data?.elements) ? data.elements : [];
+        const detectedRooms: DetectedRoom[] = rooms
+          .filter(
+            (element: any) =>
+              element?.type === "room" && Array.isArray(element.vertices),
+          )
+          .map((room: any) => {
+            const xs = room.vertices.map((vertex: any) =>
+              Number(vertex.x || 0),
+            );
+            const ys = room.vertices.map((vertex: any) =>
+              Number(vertex.y || 0),
+            );
+            const minX = Math.min(...xs);
+            const minY = Math.min(...ys);
+            const widthMm = Math.max(
+              0,
+              Math.round((Math.max(...xs) - minX) * 50),
+            );
+            const depthMm = Math.max(
+              0,
+              Math.round((Math.max(...ys) - minY) * 50),
+            );
+            return {
+              id: room.id,
+              name: room.name || room.id,
+              width_mm: widthMm,
+              depth_mm: depthMm,
+              origin_x_mm: Math.round(minX * 50),
+              origin_y_mm: Math.round(minY * 50),
+              area_m2: room.properties?.area ?? (widthMm * depthMm) / 1000000,
+              type: room.metadata?.room_type || room.roomType || room.type,
+            };
+          });
+        setElectricalRooms(detectedRooms);
+      } catch {
+        setElectricalRooms([]);
+      }
+    };
+    loadRooms();
+  }, [projectId, electricalResult]);
 
   const postJson = async <T,>(path: string, body: unknown): Promise<T> => {
     const res = await fetch(`${apiBase()}${path}`, {
@@ -766,6 +1026,315 @@ export default function AdvancedModulesPage() {
       setError((err as Error).message);
     } finally {
       setFlowBusy(false);
+    }
+  };
+
+  const runElectricalTemplate = async () => {
+    if (!projectId) return;
+    setElectricalBusy(true);
+    try {
+      const result = await postJson<ElectricalTemplateResult>(
+        `/api/projects/${projectId}/modules/electrical/template-preview`,
+        electricalForm,
+      );
+      setElectricalResult(result);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setElectricalBusy(false);
+    }
+  };
+
+  const applyElectricalTemplateToDrawing = async () => {
+    if (!projectId || !electricalResult) return;
+    setElectricalBusy(true);
+    try {
+      const currentRes = await fetch(
+        `${apiBase()}/api/projects/${projectId}/drawing`,
+      );
+      const currentData = currentRes.ok
+        ? await currentRes.json()
+        : { elements: [] };
+      const existingElements = Array.isArray(currentData.elements)
+        ? currentData.elements
+        : [];
+
+      // Find the selected room (must be detected/saved in drawing). If none, stop and ask user to save/select.
+      const selectedRoom = electricalRooms.find(
+        (room) => room.id === electricalForm.room_id,
+      );
+      if (!selectedRoom) {
+        alert(
+          "No detected room selected. Please save your drawing (click Save) and select a detected room before applying a template.",
+        );
+        setElectricalBusy(false);
+        return;
+      }
+
+      const originX = selectedRoom.origin_x_mm / 50;
+      const originY = selectedRoom.origin_y_mm / 50;
+
+      // Helpers (canvas units)
+      const MM_TO_CANVAS = 50;
+      const OPENING_ATTACH_DISTANCE = 80; // pixels
+
+      const getWallDirection = (wall: any) => {
+        const dx = wall.endPoint.x - wall.startPoint.x;
+        const dy = wall.endPoint.y - wall.startPoint.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const dir = { x: dx / len, y: dy / len };
+        const normal = { x: -dir.y, y: dir.x };
+        return { len, dir, normal };
+      };
+
+      const projectPointOnWall = (p: any, wall: any) => {
+        const { len, dir } = getWallDirection(wall);
+        const vx = p.x - wall.startPoint.x;
+        const vy = p.y - wall.startPoint.y;
+        const proj = vx * dir.x + vy * dir.y;
+        const t = Math.max(0, Math.min(1, proj / len));
+        const point = {
+          x: wall.startPoint.x + dir.x * len * t,
+          y: wall.startPoint.y + dir.y * len * t,
+        };
+        const distance = Math.hypot(p.x - point.x, p.y - point.y);
+        return { t, point, distance };
+      };
+
+      const findNearestWall = (p: any, walls: any[]) => {
+        let nearest: any = null;
+        let nearestDistance = Number.POSITIVE_INFINITY;
+        let nearestHit: any = null;
+        for (const wall of walls) {
+          const hit = projectPointOnWall(p, wall);
+          if (hit.distance < nearestDistance) {
+            nearestDistance = hit.distance;
+            nearest = wall;
+            nearestHit = hit;
+          }
+        }
+        if (nearestDistance > OPENING_ATTACH_DISTANCE) return null;
+        return { wall: nearest, hit: nearestHit };
+      };
+
+      const constrainOpeningOnWall = (
+        p: any,
+        wall: any,
+        openingWidthMm = 80,
+      ) => {
+        if (!wall) return { position: p, orientation: 0 };
+        const { len, dir } = getWallDirection(wall);
+        const openingHalf = openingWidthMm / MM_TO_CANVAS / 2;
+        const hit = projectPointOnWall(p, wall);
+        let t = hit.t;
+        if (Math.abs(t - 0.5) < 0.05) t = 0.5;
+        const snappedDistance = Math.max(
+          openingHalf,
+          Math.min(len - openingHalf, t * len),
+        );
+        const snappedPos = {
+          x: wall.startPoint.x + dir.x * snappedDistance,
+          y: wall.startPoint.y + dir.y * snappedDistance,
+        };
+        const orientation = (Math.atan2(dir.y, dir.x) * 180) / Math.PI;
+        return { position: snappedPos, orientation };
+      };
+
+      const walls = existingElements.filter((e: any) => e.type === "wall");
+
+      const convertedElements = electricalResult.fixtures.map((fixture) => {
+        const rawPos = {
+          x: originX + fixture.x_mm / MM_TO_CANVAS,
+          y: originY + fixture.y_mm / MM_TO_CANVAS,
+        };
+
+        // Default canvas position
+        let finalPos = rawPos;
+
+        // For wall-hosted fixtures (switch/socket) try snapping to nearest wall
+        if (
+          fixture.type === "switch" ||
+          fixture.type === "socket" ||
+          fixture.wall_side
+        ) {
+          const nearest = findNearestWall(rawPos, walls as any[]);
+          if (nearest) {
+            const constrained = constrainOpeningOnWall(
+              rawPos,
+              nearest.wall,
+              80,
+            );
+            finalPos = constrained.position;
+          }
+        }
+
+        const el: any = {
+          id: fixture.id,
+          type: "electrical_fixture",
+          position: finalPos,
+          width: 28,
+          height: 28,
+          rotation: 0,
+          color:
+            fixture.type === "light"
+              ? "#facc15"
+              : fixture.type === "socket"
+                ? "#60a5fa"
+                : fixture.type === "switch"
+                  ? "#34d399"
+                  : fixture.type === "emergency_light"
+                    ? "#fb7185"
+                    : "#f97316",
+          fixtureType: fixture.type,
+          circuitId: fixture.circuit_id,
+          roomType: electricalResult.room.type,
+          wallSide: fixture.wall_side,
+          voltageV:
+            electricalResult.circuits.find(
+              (circuit) => circuit.id === fixture.circuit_id,
+            )?.voltage_v ?? electricalForm.preferred_voltage_v,
+          elevationMm: fixture.elevation_mm,
+          metadata: {
+            note: fixture.note,
+            template_id: electricalResult.template_id,
+            room_name: electricalResult.room.name,
+          },
+        };
+
+        // Attach wall id if we snapped
+        const attach = findNearestWall(el.position, walls as any[]);
+        if (attach) {
+          el.metadata = el.metadata || {};
+          el.metadata.wall_assigned = attach.wall.id;
+        }
+
+        return el;
+      });
+
+      // Create polyline elements for circuits (wires)
+      const convertedRoutes = (electricalResult.circuits || []).map(
+        (c: any) => ({
+          id: `route_${c.id}`,
+          type: "polyline",
+          points: (c.route || []).flatMap((p: any) => [
+            originX + p.x / MM_TO_CANVAS,
+            originY + p.y / MM_TO_CANVAS,
+          ]),
+          stroke: "#9ca3af",
+          strokeWidth: 2,
+          metadata: { circuitId: c.id },
+        }),
+      );
+
+      const projectPointToRoute = (
+        point: { x: number; y: number },
+        routePoints: Array<{ x: number; y: number }>,
+      ) => {
+        if (routePoints.length < 2) return routePoints[0] || point;
+        let bestPoint = routePoints[0];
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        for (let i = 1; i < routePoints.length; i++) {
+          const a = routePoints[i - 1];
+          const b = routePoints[i];
+          const abX = b.x - a.x;
+          const abY = b.y - a.y;
+          const abLenSq = abX * abX + abY * abY || 1;
+          const apX = point.x - a.x;
+          const apY = point.y - a.y;
+          const t = Math.max(0, Math.min(1, (apX * abX + apY * abY) / abLenSq));
+          const projected = { x: a.x + abX * t, y: a.y + abY * t };
+          const distance = Math.hypot(
+            point.x - projected.x,
+            point.y - projected.y,
+          );
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestPoint = projected;
+          }
+        }
+
+        return bestPoint;
+      };
+
+      const routePointsByCircuit = new Map<
+        string,
+        Array<{ x: number; y: number }>
+      >(
+        (electricalResult.circuits || []).map((c: any) => [
+          c.id,
+          (c.route || []).map((p: any) => ({
+            x: originX + p.x / MM_TO_CANVAS,
+            y: originY + p.y / MM_TO_CANVAS,
+          })),
+        ]),
+      );
+
+      const branchRoutes = convertedElements.flatMap((fixture: any) => {
+        const routePoints = routePointsByCircuit.get(fixture.circuitId) || [];
+        if (routePoints.length < 2) return [];
+        const fixturePoint = {
+          x: fixture.position.x,
+          y: fixture.position.y,
+        };
+        const attachPoint = projectPointToRoute(fixturePoint, routePoints);
+        return [
+          {
+            id: `branch_${fixture.id}`,
+            type: "polyline",
+            points: [
+              fixturePoint.x,
+              fixturePoint.y,
+              attachPoint.x,
+              attachPoint.y,
+            ],
+            stroke: "#6b7280",
+            strokeWidth: 1.5,
+            metadata: {
+              circuitId: fixture.circuitId,
+              branchId: fixture.id,
+            },
+          },
+        ];
+      });
+
+      const merged = [
+        ...existingElements.filter(
+          (element: any) =>
+            element.type !== "electrical_fixture" &&
+            element.type !== "polyline",
+        ),
+        ...convertedElements,
+        ...convertedRoutes,
+        ...branchRoutes,
+      ];
+
+      const saveRes = await fetch(
+        `${apiBase()}/api/projects/${projectId}/drawing`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId,
+            elements: merged,
+            timestamp: new Date().toISOString(),
+          }),
+        },
+      );
+
+      if (!saveRes.ok) {
+        throw new Error(
+          `Failed to apply electrical template (${saveRes.status})`,
+        );
+      }
+
+      alert(
+        "Electrical template applied to drawing. Open Modeling to see it in 2D and 3D.",
+      );
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setElectricalBusy(false);
     }
   };
 
@@ -982,7 +1551,7 @@ export default function AdvancedModulesPage() {
   return (
     <main className="min-h-screen bg-[#080b17] text-white">
       <header className="sticky top-0 z-20 border-b border-white/5 bg-[#080b17]/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-6 py-4">
+        <div className="mx-auto flex max-w-400 items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-4">
             <Link
               href="/"
@@ -1012,9 +1581,9 @@ export default function AdvancedModulesPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1600px] px-6 py-8">
+      <div className="mx-auto max-w-400 px-6 py-8">
         <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-blue-500/15 to-slate-900 p-5">
+          <div className="rounded-3xl border border-white/10 bg-linear-to-br from-blue-500/15 to-slate-900 p-5">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.2em] text-blue-200/70">
               <Building2 className="h-4 w-4" /> Project Context
             </div>
@@ -1054,6 +1623,12 @@ export default function AdvancedModulesPage() {
             className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-blue-500/30 hover:text-white"
           >
             <Route className="mr-2 inline h-4 w-4" /> MEP
+          </a>
+          <a
+            href="#electrical"
+            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-blue-500/30 hover:text-white"
+          >
+            <Zap className="mr-2 inline h-4 w-4" /> Electrical Templates
           </a>
           <a
             href="#energy"
@@ -1658,6 +2233,347 @@ export default function AdvancedModulesPage() {
           </SectionCard>
 
           <SectionCard
+            id="electrical"
+            title="Electrical Templates"
+            description="Generate room-specific electrical layout previews for educational buildings. The template engine uses room dimensions, entry side, and template type to create fixtures, circuits, and manual-edit hints for a dummy test workflow."
+            icon={Zap}
+          >
+            <div className="grid gap-6 xl:grid-cols-2">
+              <div className="space-y-4 rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">
+                  Template Inputs
+                </h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <SelectField
+                    label="Room Type"
+                    value={electricalForm.room_type}
+                    onChange={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        room_type: value as ElectricalTemplateForm["room_type"],
+                      }))
+                    }
+                    options={[
+                      { label: "Classroom", value: "classroom" },
+                      { label: "Corridor", value: "corridor" },
+                      { label: "Staff Room", value: "staff_room" },
+                      { label: "Library", value: "library" },
+                      { label: "Auditorium", value: "auditorium" },
+                      { label: "Washroom", value: "washroom" },
+                      { label: "Lab", value: "lab" },
+                      { label: "Reception", value: "reception" },
+                    ]}
+                  />
+                  <SelectField
+                    label="Units"
+                    value={electricalUnits}
+                    onChange={(value) =>
+                      setElectricalUnits(value as "mm" | "imperial")
+                    }
+                    options={[
+                      { label: "Feet / Inches", value: "imperial" },
+                      { label: "Millimeters", value: "mm" },
+                    ]}
+                  />
+                  <label className="space-y-1 text-sm">
+                    <span className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Room Name
+                    </span>
+                    <input
+                      type="text"
+                      value={electricalForm.room_name}
+                      onChange={(e) =>
+                        setElectricalForm((prev) => ({
+                          ...prev,
+                          room_name: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none transition focus:border-blue-500"
+                    />
+                  </label>
+                  <SelectField
+                    label="Detected Room"
+                    value={electricalForm.room_id || ""}
+                    onChange={(value) => {
+                      const room = electricalRooms.find(
+                        (item) => item.id === value,
+                      );
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        room_id: value || undefined,
+                        room_name: room?.name || prev.room_name,
+                        room_width_mm: room?.width_mm || prev.room_width_mm,
+                        room_depth_mm: room?.depth_mm || prev.room_depth_mm,
+                        occupancy: Math.max(
+                          prev.occupancy,
+                          Math.max(1, Math.round((room?.area_m2 || 0) / 1.2)),
+                        ),
+                      }));
+                    }}
+                    options={[
+                      {
+                        label: electricalRooms.length
+                          ? "Choose a saved room"
+                          : "No rooms detected yet",
+                        value: "",
+                      },
+                      ...electricalRooms.map((room) => ({
+                        label: `${room.name} (${formatImperial(room.width_mm)} x ${formatImperial(room.depth_mm)})`,
+                        value: room.id,
+                      })),
+                    ]}
+                  />
+                  <MeasurementField
+                    label="Room Width"
+                    valueMm={electricalForm.room_width_mm}
+                    onChangeMm={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        room_width_mm: value,
+                      }))
+                    }
+                    unitMode={electricalUnits}
+                    minMm={1}
+                    helper={`${formatImperial(electricalForm.room_width_mm)} (stored as mm)`}
+                  />
+                  <MeasurementField
+                    label="Room Depth"
+                    valueMm={electricalForm.room_depth_mm}
+                    onChangeMm={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        room_depth_mm: value,
+                      }))
+                    }
+                    unitMode={electricalUnits}
+                    minMm={1}
+                    helper={`${formatImperial(electricalForm.room_depth_mm)} (stored as mm)`}
+                  />
+                  <MeasurementField
+                    label="Ceiling Height"
+                    valueMm={electricalForm.ceiling_height_mm}
+                    onChangeMm={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        ceiling_height_mm: value,
+                      }))
+                    }
+                    unitMode={electricalUnits}
+                    minMm={2400}
+                    helper={`${formatImperial(electricalForm.ceiling_height_mm)} (stored as mm)`}
+                  />
+                  <NumberField
+                    label="Occupancy"
+                    value={electricalForm.occupancy}
+                    onChange={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        occupancy: value,
+                      }))
+                    }
+                    min={0}
+                  />
+                  <SelectField
+                    label="Entry Side"
+                    value={electricalForm.entry_side}
+                    onChange={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        entry_side:
+                          value as ElectricalTemplateForm["entry_side"],
+                      }))
+                    }
+                    options={[
+                      { label: "North", value: "north" },
+                      { label: "South", value: "south" },
+                      { label: "East", value: "east" },
+                      { label: "West", value: "west" },
+                    ]}
+                  />
+                  <MeasurementField
+                    label="Stage Depth"
+                    valueMm={electricalForm.stage_depth_mm}
+                    onChangeMm={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        stage_depth_mm: value,
+                      }))
+                    }
+                    unitMode={electricalUnits}
+                    minMm={0}
+                    helper={`${formatImperial(electricalForm.stage_depth_mm)} (stored as mm)`}
+                  />
+                  <NumberField
+                    label="Seating Rows"
+                    value={electricalForm.seating_rows}
+                    onChange={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        seating_rows: value,
+                      }))
+                    }
+                    min={0}
+                  />
+                  <NumberField
+                    label="Preferred Voltage (V)"
+                    value={electricalForm.preferred_voltage_v}
+                    onChange={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        preferred_voltage_v: value,
+                      }))
+                    }
+                    min={110}
+                  />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <ToggleField
+                    label="Include emergency circuit"
+                    checked={electricalForm.include_emergency_circuit}
+                    onChange={(checked) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        include_emergency_circuit: checked,
+                      }))
+                    }
+                  />
+                </div>
+                <button
+                  onClick={runElectricalTemplate}
+                  disabled={electricalBusy}
+                  className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {electricalBusy
+                    ? "Generating..."
+                    : "Generate Electrical Template"}
+                </button>
+                <button
+                  onClick={applyElectricalTemplateToDrawing}
+                  disabled={electricalBusy || !electricalResult}
+                  className="rounded-xl border border-amber-500/30 bg-white/5 px-5 py-3 text-sm font-bold text-amber-200 transition hover:border-amber-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Apply to Drawing
+                </button>
+              </div>
+
+              <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0c1020] p-4">
+                <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-slate-400">
+                  Template Preview
+                </h3>
+                {electricalResult ? (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
+                      <MetricCard
+                        label="Template"
+                        value={electricalResult.template_id}
+                      />
+                      <MetricCard
+                        label="Fixtures"
+                        value={`${electricalResult.summary.fixtures}`}
+                      />
+                      <MetricCard
+                        label="Circuits"
+                        value={`${electricalResult.summary.circuits}`}
+                      />
+                      <MetricCard
+                        label="Lights"
+                        value={`${electricalResult.summary.light_points}`}
+                      />
+                      <MetricCard
+                        label="Sockets"
+                        value={`${electricalResult.summary.socket_points}`}
+                      />
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {electricalResult.rules_used.map((rule) => (
+                        <div
+                          key={rule}
+                          className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300"
+                        >
+                          {rule}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="overflow-hidden rounded-2xl border border-white/10">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="bg-slate-950/80 text-xs uppercase tracking-wider text-slate-400">
+                          <tr>
+                            <th className="px-4 py-3">Fixture</th>
+                            <th className="px-4 py-3">Type</th>
+                            <th className="px-4 py-3">X</th>
+                            <th className="px-4 py-3">Y</th>
+                            <th className="px-4 py-3">Circuit</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 bg-[#0c1020] text-slate-200">
+                          {electricalResult.fixtures.map((fixture) => (
+                            <tr key={fixture.id}>
+                              <td className="px-4 py-3">{fixture.id}</td>
+                              <td className="px-4 py-3">{fixture.type}</td>
+                              <td className="px-4 py-3">
+                                {fixture.x_mm.toFixed(0)} mm
+                              </td>
+                              <td className="px-4 py-3">
+                                {fixture.y_mm.toFixed(0)} mm
+                              </td>
+                              <td className="px-4 py-3">
+                                {fixture.circuit_id}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="overflow-hidden rounded-2xl border border-white/10">
+                      <table className="min-w-full text-left text-sm">
+                        <thead className="bg-slate-950/80 text-xs uppercase tracking-wider text-slate-400">
+                          <tr>
+                            <th className="px-4 py-3">Circuit</th>
+                            <th className="px-4 py-3">Breaker</th>
+                            <th className="px-4 py-3">Load</th>
+                            <th className="px-4 py-3">Length</th>
+                            <th className="px-4 py-3">Route Points</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 bg-[#0c1020] text-slate-200">
+                          {electricalResult.circuits.map((circuit) => (
+                            <tr key={circuit.id}>
+                              <td className="px-4 py-3">{circuit.label}</td>
+                              <td className="px-4 py-3">{circuit.breaker}</td>
+                              <td className="px-4 py-3">{circuit.load_type}</td>
+                              <td className="px-4 py-3">
+                                {circuit.length_mm.toFixed(0)} mm
+                              </td>
+                              <td className="px-4 py-3">
+                                {circuit.route.length}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="space-y-2 text-sm text-slate-300">
+                      {electricalResult.manual_edit_hints.map((hint) => (
+                        <div
+                          key={hint}
+                          className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-amber-100"
+                        >
+                          {hint}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-sm text-slate-400">
+                    Generate a template to preview the electrical fixtures and
+                    circuit routes for the selected room type.
+                  </div>
+                )}
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
             id="energy"
             title="Energy / Sustainability"
             description="Estimate cooling load, solar heat gain, daylight score, and an initial energy rating from the project shell or custom assumptions."
@@ -1839,7 +2755,7 @@ export default function AdvancedModulesPage() {
 
             {renderResult ? (
               <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-                <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 shadow-2xl shadow-black/20">
+                <div className="rounded-3xl border border-white/10 bg-linear-to-br from-slate-950 via-slate-900 to-slate-800 p-6 shadow-2xl shadow-black/20">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">
@@ -1858,7 +2774,7 @@ export default function AdvancedModulesPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="mt-6 h-64 rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.28),_rgba(15,23,42,0.95))] p-6">
+                  <div className="mt-6 h-64 rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.28),rgba(15,23,42,0.95))] p-6">
                     <div className="flex h-full items-end justify-between gap-4">
                       <div className="max-w-sm">
                         <div className="text-sm font-semibold text-slate-200">
@@ -1909,7 +2825,7 @@ export default function AdvancedModulesPage() {
                     <ul className="mt-3 space-y-2">
                       {renderResult.render_notes.map((note) => (
                         <li key={note} className="flex items-start gap-2">
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-300" />
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
                           <span>{note}</span>
                         </li>
                       ))}
