@@ -16,8 +16,55 @@ export type ElementType =
   | "text"
   | "line"
   | "arc"
-  | "column"
-  | "beam";
+  | "beam"
+  | "stairs"
+  | "floor"
+  | "railing"
+  | "roof";
+
+export interface Stair {
+  id: string;
+  type: "stairs";
+  position: Point2D;
+  width: number;
+  height: number;
+  rotation?: number; // degrees
+  color?: string;
+  metadata?: any;
+}
+
+export interface Floor {
+  id: string;
+  type: "floor";
+  position: Point2D;
+  width: number;
+  depth: number;
+  rotation?: number;
+  color?: string;
+  metadata?: any;
+}
+
+export interface Railing {
+  id: string;
+  type: "railing";
+  position: Point2D;
+  length: number;
+  height: number;
+  rotation?: number;
+  color?: string;
+  metadata?: any;
+}
+
+export interface Roof {
+  id: string;
+  type: "roof";
+  position: Point2D;
+  width: number;
+  depth: number;
+  rotation?: number;
+  color?: string;
+  metadata?: any;
+}
 
 export interface Point2D {
   x: number;
@@ -131,6 +178,10 @@ export type Element =
   | Room
   | Dimension
   | TextElement
+  | Stair
+  | Floor
+  | Railing
+  | Roof
   | DrawingElement;
 
 // ─────────────────────────────────────────────────────────
@@ -252,7 +303,11 @@ export type ToolType =
   | "erase"
   | "pan"
   | "zoom"
-  | "furniture";
+  | "stairs"
+  | "floor"
+  | "railing"
+  | "furniture"
+  | "roof";
 
 export interface DrawingToolState {
   activeTool: ToolType;

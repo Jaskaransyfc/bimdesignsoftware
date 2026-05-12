@@ -34,16 +34,33 @@ export const renderProceduralDoor = (
   const isSelected = selectedElementId === door.id;
   
   // 1. LEAF MATERIAL (Glass or Wood)
-  const leafMaterial = new THREE.MeshStandardMaterial({
-    color: isSelected ? "#3b82f6" : (isGlass ? "#e2f5ff" : (color || "#7c2d12")),
-    roughness: isGlass ? 0.05 : 0.55,
-    metalness: isGlass ? 0.9 : 0.1,
-    transparent: isGlass,
-    opacity: isGlass ? 0.2 : 1, // Ultra-clear glass
-    emissive: isSelected ? "#1d4ed8" : "#000000",
-    emissiveIntensity: isSelected ? 0.5 : 0,
-    depthWrite: isGlass ? false : true,
-  });
+  // Better wood colors that are lighter and more visible
+  const defaultWoodColors = ["#A0522D", "#8B4513", "#CD853F", "#D2691E", "#BC8F8F"];
+  const woodColor = color || defaultWoodColors[Math.floor(Math.random() * defaultWoodColors.length)];
+  
+  const leafMaterial = isGlass 
+    // @ts-ignore - MeshPhysicalMaterial exists in three
+    ? new THREE.MeshPhysicalMaterial({
+        color: "#ffffff",
+        metalness: 0.1,
+        roughness: 0.05,
+        transmission: 0.9,  // Realistic glass transmission
+        thickness: 0.02,
+        transparent: true,
+        opacity: 1,
+        // @ts-ignore
+        side: THREE.DoubleSide,
+        envMapIntensity: 1,
+        clearcoat: 1,
+        clearcoatRoughness: 0.05,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: isSelected ? "#3b82f6" : woodColor,
+        roughness: 0.6,
+        metalness: 0.05,
+        emissive: isSelected ? "#1d4ed8" : "#000000",
+        emissiveIntensity: isSelected ? 0.5 : 0,
+      });
 
   const addLeaf = (
     centerX: number,
@@ -111,10 +128,15 @@ export const renderProceduralDoor = (
   scene.add(handle);
 
   // 2. FRAME MATERIAL (Uses custom color)
-  const frameColor = color || "#522b11"; // Use custom color for frame
+  // Lighter wood colors for better visibility
+  const frameColors = ["#8B4513", "#A0522D", "#654321", "#5C4033"];
+  const frameColor = color || frameColors[Math.floor(Math.random() * frameColors.length)];
   const frameMaterial = new THREE.MeshStandardMaterial({
-    color: frameColor,
-    roughness: 0.7,
+    color: isSelected ? "#3b82f6" : frameColor,
+    roughness: 0.6,
+    metalness: 0.1,
+    emissive: isSelected ? "#1d4ed8" : "#000000",
+    emissiveIntensity: isSelected ? 0.3 : 0,
   });
   const frameThickness = hostWall
     ? hostWall.thickness / MM_SCALE + 0.03

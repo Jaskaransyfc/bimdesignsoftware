@@ -20,9 +20,9 @@ export const renderSlattedPivotDoor = (
   // 1. MAIN DOOR LEAF
   const doorGeom = new THREE.BoxGeometry(doorW, doorH, doorT);
   const doorMat = new THREE.MeshStandardMaterial({
-    color: isSelected ? "#3b82f6" : (color || "#6A4A33"), // Rich walnut
-    roughness: 0.42,
-    metalness: 0.02,
+    color: isSelected ? "#3b82f6" : (color || "#8B5A2B"), // Warm Teak/Walnut
+    roughness: 0.35,
+    metalness: 0.05,
     emissive: isSelected ? "#1d4ed8" : "#000000",
     emissiveIntensity: isSelected ? 0.3 : 0,
   });
@@ -31,12 +31,12 @@ export const renderSlattedPivotDoor = (
   doorGroup.add(doorMesh);
 
   // 2. VERTICAL SLATS
-  const slatW = 0.014 * 2;
-  const slatGap = 0.012 * 2;
-  const slatRegionW = 0.30 * 2;
+  const slatW = 0.015 * 2;
+  const slatGap = 0.015 * 2;
+  const slatRegionW = 0.35 * 2;
   const slatMat = new THREE.MeshStandardMaterial({
-    color: "#1E1612", // Dark slatted wood
-    roughness: 0.78,
+    color: "#4E342E", // Slightly darker wood for slats
+    roughness: 0.6,
     metalness: 0.02,
   });
 
@@ -47,21 +47,20 @@ export const renderSlattedPivotDoor = (
 
   let currentX = startX;
   while (currentX < endX) {
-    const slatGeom = new THREE.BoxGeometry(slatW, doorH, 0.018 * 2);
+    const slatGeom = new THREE.BoxGeometry(slatW, doorH, 0.02 * 2);
     const slatMesh = new THREE.Mesh(slatGeom, slatMat);
-    // User translate y: -0.012
     slatMesh.position.set(currentX - doorW / 2 + slatW / 2, doorH / 2, doorT / 2 + 0.005);
     doorGroup.add(slatMesh);
     currentX += slatW + slatGap;
   }
 
   // 3. OUTER FRAME
-  const frameT = 0.035 * 2;
+  const frameT = 0.04 * 2;
   const frameD = hostWall ? hostWall.thickness / MM_SCALE + 0.04 : 0.08 * 2;
   const frameMat = new THREE.MeshStandardMaterial({
-    color: "#2A1D16", // Dark frame
-    roughness: 0.58,
-    metalness: 0.02,
+    color: "#3E2723", // Dark espresso frame
+    roughness: 0.45,
+    metalness: 0.05,
   });
 
   const leftFrame = new THREE.Mesh(new THREE.BoxGeometry(frameT, doorH + frameT, frameD), frameMat);

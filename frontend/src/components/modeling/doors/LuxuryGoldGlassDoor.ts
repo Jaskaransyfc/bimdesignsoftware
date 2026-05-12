@@ -16,13 +16,19 @@ export const renderLuxuryGoldGlassDoor = (
 ) => {
   const group = new THREE.Group();
 
-  const glass_mat = new THREE.MeshStandardMaterial({
+  // @ts-ignore - MeshPhysicalMaterial exists in three
+  const glass_mat = new THREE.MeshPhysicalMaterial({
     color: "#fffcf0",
-    opacity: 0.15,
-    metalness: 0.9,
+    metalness: 0.1,
     roughness: 0.05,
+    transmission: 0.85,
+    thickness: 0.015,
     transparent: true,
-    depthWrite: false,
+    opacity: 1,
+    // @ts-ignore
+    side: THREE.DoubleSide,
+    envMapIntensity: 1,
+    clearcoat: 1,
   });
 
   const gold_mat = new THREE.MeshStandardMaterial({

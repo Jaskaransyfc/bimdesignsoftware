@@ -17,20 +17,26 @@ export const renderGeometricArtGlassDoor = (
   const group = new THREE.Group();
 
   const wood_mat = new THREE.MeshStandardMaterial({
-    color: isSelected ? "#3b82f6" : (color || "#7A563C"),
-    roughness: 0.34,
+    color: isSelected ? "#3b82f6" : (color || "#A0522D"),
+    roughness: 0.4,
     metalness: 0.1,
     emissive: isSelected ? "#1d4ed8" : "#000000",
     emissiveIntensity: isSelected ? 0.3 : 0,
   });
 
-  const glass_mat = new THREE.MeshStandardMaterial({
+  // @ts-ignore - MeshPhysicalMaterial exists in three
+  const glass_mat = new THREE.MeshPhysicalMaterial({
     color: "#e2f5ff",
-    opacity: 0.15,
-    metalness: 0.9,
+    metalness: 0.1,
     roughness: 0.05,
+    transmission: 0.9,
+    thickness: 0.02,
     transparent: true,
-    depthWrite: false,
+    opacity: 1,
+    // @ts-ignore
+    side: THREE.DoubleSide,
+    envMapIntensity: 1,
+    clearcoat: 1,
   });
 
   const metal_mat = new THREE.MeshStandardMaterial({

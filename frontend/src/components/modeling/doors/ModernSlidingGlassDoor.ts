@@ -17,20 +17,26 @@ export const renderModernSlidingGlassDoor = (
   const group = new THREE.Group();
 
   const black_mat = new THREE.MeshStandardMaterial({
-    color: isSelected ? "#3b82f6" : (color || "#111111"),
-    metalness: 0.42,
-    roughness: 0.28,
+    color: isSelected ? "#3b82f6" : (color || "#2a2a2a"),
+    metalness: 0.5,
+    roughness: 0.3,
     emissive: isSelected ? "#1d4ed8" : "#000000",
     emissiveIntensity: isSelected ? 0.3 : 0,
   });
 
-  const glass_mat = new THREE.MeshStandardMaterial({
+  // @ts-ignore - MeshPhysicalMaterial exists in three
+  const glass_mat = new THREE.MeshPhysicalMaterial({
     color: "#fff5e6",
-    opacity: 0.2,
-    metalness: 0.8,
+    metalness: 0.1,
     roughness: 0.05,
+    transmission: 0.85,
+    thickness: 0.015,
     transparent: true,
-    depthWrite: false,
+    opacity: 1,
+    // @ts-ignore
+    side: THREE.DoubleSide,
+    envMapIntensity: 1,
+    clearcoat: 1,
   });
 
   const panel_count = 4;

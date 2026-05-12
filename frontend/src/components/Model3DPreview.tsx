@@ -65,6 +65,12 @@ import {
   renderSemiCurvedWindow
 } from "./modeling/windows";
 import {
+  renderModernMetalRailing,
+  renderHorizontalMetalRailing,
+  renderRoofGlassRailing,
+  renderTreeBranchStairRailing,
+} from "./modeling/railings";
+import {
   renderMarbleVitrifiedFloor,
   renderConcreteTileFloor,
   renderDecorativeMedallionFloor,
@@ -75,7 +81,31 @@ import { renderRailing } from "./modeling/railings/RailingRenderer";
 import { convert2DTo3D } from "@/lib/geometry3d";
 import { renderWoodenSlatWall, renderStandardBIMWall } from "./modeling/walls";
 import { renderPartitionWall } from "./modeling/partitions/PartitionWallRenderer";
-import { Door, Element, FurnitureItem, Window, Wall } from "@/types/modeling";
+import {
+  renderClearGlassPartition,
+  renderFrostedGlassPartition,
+  renderRibbedGlassPartition,
+  renderSmokedGlassPartition,
+  renderGradientGlassPartition,
+  renderColoredLaminatedPartition,
+  renderOakSlatPartition,
+  renderAshWoodPartition,
+  renderMatteBlackWoodPartition,
+} from "./modeling/walls/partitionWalls";
+import {
+  renderExposedConcreteCompoundWall,
+  renderNaturalStoneCompoundWall,
+  renderWoodenSlatCompoundWall,
+  renderBrickTextureCompoundWall,
+} from "./modeling/walls/compoundWalls";
+import {
+  renderSoftRoundedFlatRoof,
+  renderModernFlatRoof,
+  renderSlopedTileRoof,
+  renderSymmetricGableRoof,
+  renderThatchedRoof,
+} from "./modeling/roofs";
+import { Door, Element, FurnitureItem, Window, Wall, Railing, Roof } from "@/types/modeling";
 
 interface Model3DPreviewProps {
   elements: Element[];
@@ -650,6 +680,66 @@ export default function Model3DPreview({
         });
 
       const isSelected = selectedElementId === wall.id;
+      const px = wall.startPoint.x / PLAN_SCALE;
+      const pz = wall.startPoint.y / PLAN_SCALE;
+      const rotation = -Math.atan2(dy, dx);
+      const materialName = wall.material?.toLowerCase() || "";
+
+      if (materialName.includes("clear_glass_partition")) {
+        renderClearGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("frosted_glass_partition")) {
+        renderFrostedGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("ribbed_glass_partition")) {
+        renderRibbedGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("smoked_glass_partition")) {
+        renderSmokedGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("gradient_glass_partition")) {
+        renderGradientGlassPartition(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("colored_laminated_partition")) {
+        renderColoredLaminatedPartition(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("oak_slat_partition")) {
+        renderOakSlatPartition(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("ash_wood_partition")) {
+        renderAshWoodPartition(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("matte_black_wood_partition")) {
+        renderMatteBlackWoodPartition(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+
+      // Compound Walls
+      if (materialName.includes("exposed_concrete_compound")) {
+        renderExposedConcreteCompoundWall(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("natural_stone_compound")) {
+        renderNaturalStoneCompoundWall(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("wooden_slat_compound")) {
+        renderWoodenSlatCompoundWall(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+      if (materialName.includes("brick_texture_compound")) {
+        renderBrickTextureCompoundWall(scene, px, pz, length, height, rotation, isSelected);
+        return;
+      }
+
       let material;
 
       if (wall.material === "Wooden Slat") {
@@ -775,6 +865,51 @@ export default function Model3DPreview({
         });
       });
     }
+
+    elements
+      .filter((el): el is Railing => el.type === "railing")
+      .forEach((railing) => {
+        const railL = (railing.length || 8000) / MM_SCALE;
+        const railH = (railing.height || 1100) / MM_SCALE;
+        const px = railing.position.x / PLAN_SCALE;
+        const pz = railing.position.y / PLAN_SCALE;
+        const rotation = (railing.rotation || 0) * (Math.PI / 180);
+        const style = String(railing.metadata?.railing_style || "").toLowerCase();
+
+        if (style === "horizontal") {
+          renderHorizontalMetalRailing(scene, px, pz, railL, railH, -rotation);
+        } else if (style === "glass") {
+          renderRoofGlassRailing(scene, px, pz, railL, -rotation);
+        } else if (style === "tree_branch") {
+          renderTreeBranchStairRailing(scene, px, pz, 8, 0.18, 0.28, -rotation);
+        } else {
+          renderModernMetalRailing(scene, px, pz, railL, railH, -rotation);
+        }
+      });
+
+    elements
+      .filter((el): el is Roof => el.type === "roof")
+      .forEach((roof) => {
+        const roofW = (roof.width || 8000) / MM_SCALE;
+        const roofD = (roof.depth || 6000) / MM_SCALE;
+        const px = roof.position.x / PLAN_SCALE;
+        const pz = roof.position.y / PLAN_SCALE;
+        const rotation = (roof.rotation || 0) * (Math.PI / 180);
+        const style = String(roof.metadata?.roof_style || "").toLowerCase();
+        const isSelected = selectedElementId === roof.id;
+
+        if (style === "soft_rounded") {
+          renderSoftRoundedFlatRoof(scene, px, pz, roofW, roofD, 0.26, -rotation, isSelected);
+        } else if (style === "sloped_tile") {
+          renderSlopedTileRoof(scene, px, pz, roofW, roofD, -rotation, isSelected);
+        } else if (style === "symmetric_gable") {
+          renderSymmetricGableRoof(scene, px, pz, roofW, roofD, -rotation, isSelected);
+        } else if (style === "thatched") {
+          renderThatchedRoof(scene, px, pz, roofW, roofD, -rotation, isSelected);
+        } else {
+          renderModernFlatRoof(scene, px, pz, roofW, roofD, -rotation, isSelected);
+        }
+      });
 
     model3D.doors.forEach((door) => {
       const doorW = Math.max(door.width / MM_SCALE, 0.1);
