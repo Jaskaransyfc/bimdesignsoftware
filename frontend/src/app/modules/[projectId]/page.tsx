@@ -75,6 +75,22 @@ type ModuleContext = {
 
 type ElectricalTemplateForm = {
   room_id?: string;
+  building_type:
+    | "college"
+    | "school"
+    | "university"
+    | "hospital"
+    | "commercial_complex"
+    | "mall"
+    | "government_office"
+    | "private_office"
+    | "residential_high_rise";
+  mep_discipline:
+    | "electrical"
+    | "sewage"
+    | "fire_fighting_pipeline"
+    | "fire_alarm"
+    | "hvac";
   room_type:
     | "classroom"
     | "corridor"
@@ -83,13 +99,24 @@ type ElectricalTemplateForm = {
     | "auditorium"
     | "washroom"
     | "lab"
-    | "reception";
+    | "reception"
+    | "chemistry_lab"
+    | "physics_lab"
+    | "computer_lab"
+    | "principal_office"
+    | "meeting_room"
+    | "icu"
+    | "emergency_ward"
+    | "patient_waiting"
+    | "blood_collection_lab"
+    | "operation_theatre";
   room_name: string;
   room_width_mm: number;
   room_depth_mm: number;
   ceiling_height_mm: number;
   occupancy: number;
   entry_side: "north" | "south" | "east" | "west";
+  teaching_wall_side: "" | "north" | "south" | "east" | "west";
   stage_depth_mm: number;
   seating_rows: number;
   preferred_voltage_v: number;
@@ -103,6 +130,9 @@ type ElectricalTemplateResult = {
   room: {
     name: string;
     type: ElectricalTemplateForm["room_type"];
+    building_type?: string;
+    mep_discipline?: string;
+    teaching_wall_side?: string | null;
     width_mm: number;
     depth_mm: number;
     ceiling_height_mm: number;
@@ -687,6 +717,8 @@ export default function AdvancedModulesPage() {
   const [mepBusy, setMepBusy] = useState(false);
 
   const [electricalForm, setElectricalForm] = useState<ElectricalTemplateForm>({
+    building_type: "school",
+    mep_discipline: "electrical",
     room_type: "classroom",
     room_name: "Classroom",
     room_width_mm: 7200,
@@ -694,6 +726,7 @@ export default function AdvancedModulesPage() {
     ceiling_height_mm: 3300,
     occupancy: 40,
     entry_side: "south",
+    teaching_wall_side: "",
     stage_depth_mm: 6000,
     seating_rows: 0,
     preferred_voltage_v: 230,
@@ -1031,11 +1064,24 @@ export default function AdvancedModulesPage() {
 
   const runElectricalTemplate = async () => {
     if (!projectId) return;
+    if (electricalForm.mep_discipline !== "electrical") {
+      setError(
+        "Electrical template preview only supports MEP discipline “Electrical”. Other systems use hydraulic/fire/HVAC modules.",
+      );
+      return;
+    }
     setElectricalBusy(true);
     try {
+      const payload = {
+        ...electricalForm,
+        teaching_wall_side:
+          electricalForm.teaching_wall_side === ""
+            ? null
+            : electricalForm.teaching_wall_side,
+      };
       const result = await postJson<ElectricalTemplateResult>(
         `/api/projects/${projectId}/modules/electrical/template-preview`,
-        electricalForm,
+        payload,
       );
       setElectricalResult(result);
     } catch (err) {
@@ -2235,7 +2281,7 @@ export default function AdvancedModulesPage() {
           <SectionCard
             id="electrical"
             title="Electrical Templates"
-            description="Generate room-specific electrical layout previews for educational buildings. The template engine uses room dimensions, entry side, and template type to create fixtures, circuits, and manual-edit hints for a dummy test workflow."
+            description="Layouts were previously symmetric because the engine used room center (50%/50%) for many presets. Building type, teaching wall, and corridor bias now shift grids per NBC / IS references (conceptual). Pick building + space type and Electrical discipline for Indian institutional presets."
             icon={Zap}
           >
             <div className="grid gap-6 xl:grid-cols-2">
@@ -2245,7 +2291,53 @@ export default function AdvancedModulesPage() {
                 </h3>
                 <div className="grid gap-4 md:grid-cols-2">
                   <SelectField
-                    label="Room Type"
+                    label="Building Type"
+                    value={electricalForm.building_type}
+                    onChange={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        building_type:
+                          value as ElectricalTemplateForm["building_type"],
+                      }))
+                    }
+                    options={[
+                      { label: "College", value: "college" },
+                      { label: "School", value: "school" },
+                      { label: "University", value: "university" },
+                      { label: "Hospital", value: "hospital" },
+                      { label: "Commercial Complex", value: "commercial_complex" },
+                      { label: "Mall", value: "mall" },
+                      { label: "Government Office", value: "government_office" },
+                      { label: "Private Office", value: "private_office" },
+                      {
+                        label: "Residential High Rise",
+                        value: "residential_high_rise",
+                      },
+                    ]}
+                  />
+                  <SelectField
+                    label="MEP Discipline"
+                    value={electricalForm.mep_discipline}
+                    onChange={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        mep_discipline:
+                          value as ElectricalTemplateForm["mep_discipline"],
+                      }))
+                    }
+                    options={[
+                      { label: "Electrical", value: "electrical" },
+                      { label: "Sewage", value: "sewage" },
+                      {
+                        label: "Fire Fighting Pipeline",
+                        value: "fire_fighting_pipeline",
+                      },
+                      { label: "Fire Alarm", value: "fire_alarm" },
+                      { label: "HVAC", value: "hvac" },
+                    ]}
+                  />
+                  <SelectField
+                    label="Room / Space Type"
                     value={electricalForm.room_type}
                     onChange={(value) =>
                       setElectricalForm((prev) => ({
@@ -2257,11 +2349,27 @@ export default function AdvancedModulesPage() {
                       { label: "Classroom", value: "classroom" },
                       { label: "Corridor", value: "corridor" },
                       { label: "Staff Room", value: "staff_room" },
+                      { label: "Principal Office", value: "principal_office" },
+                      { label: "Meeting Room", value: "meeting_room" },
                       { label: "Library", value: "library" },
                       { label: "Auditorium", value: "auditorium" },
                       { label: "Washroom", value: "washroom" },
-                      { label: "Lab", value: "lab" },
+                      { label: "Lab (general)", value: "lab" },
+                      { label: "Chemistry Lab", value: "chemistry_lab" },
+                      { label: "Physics Lab", value: "physics_lab" },
+                      { label: "Computer Lab", value: "computer_lab" },
                       { label: "Reception", value: "reception" },
+                      { label: "ICU", value: "icu" },
+                      { label: "Emergency Ward", value: "emergency_ward" },
+                      {
+                        label: "Patient Waiting Area",
+                        value: "patient_waiting",
+                      },
+                      {
+                        label: "Blood Collection Lab",
+                        value: "blood_collection_lab",
+                      },
+                      { label: "Operation Theatre", value: "operation_theatre" },
                     ]}
                   />
                   <SelectField
@@ -2390,6 +2498,27 @@ export default function AdvancedModulesPage() {
                       { label: "West", value: "west" },
                     ]}
                   />
+                  <SelectField
+                    label="Teaching wall (classroom bias)"
+                    value={electricalForm.teaching_wall_side}
+                    onChange={(value) =>
+                      setElectricalForm((prev) => ({
+                        ...prev,
+                        teaching_wall_side:
+                          value as ElectricalTemplateForm["teaching_wall_side"],
+                      }))
+                    }
+                    options={[
+                      {
+                        label: "Not specified (symmetric grid)",
+                        value: "",
+                      },
+                      { label: "North", value: "north" },
+                      { label: "South", value: "south" },
+                      { label: "East", value: "east" },
+                      { label: "West", value: "west" },
+                    ]}
+                  />
                   <MeasurementField
                     label="Stage Depth"
                     valueMm={electricalForm.stage_depth_mm}
@@ -2440,12 +2569,17 @@ export default function AdvancedModulesPage() {
                 </div>
                 <button
                   onClick={runElectricalTemplate}
-                  disabled={electricalBusy}
+                  disabled={
+                    electricalBusy ||
+                    electricalForm.mep_discipline !== "electrical"
+                  }
                   className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {electricalBusy
                     ? "Generating..."
-                    : "Generate Electrical Template"}
+                    : electricalForm.mep_discipline !== "electrical"
+                      ? "Select Electrical discipline"
+                      : "Generate Electrical Template"}
                 </button>
                 <button
                   onClick={applyElectricalTemplateToDrawing}
