@@ -81,6 +81,26 @@ class FixturePlacementRequest(BaseModel):
 
 
 class ElectricalTemplateRequest(BaseModel):
+    """Educational / hospital / commercial electrical templates with Indian code references (conceptual)."""
+
+    building_type: Literal[
+        "college",
+        "school",
+        "university",
+        "hospital",
+        "commercial_complex",
+        "mall",
+        "government_office",
+        "private_office",
+        "residential_high_rise",
+    ] = "school"
+    mep_discipline: Literal[
+        "electrical",
+        "sewage",
+        "fire_fighting_pipeline",
+        "fire_alarm",
+        "hvac",
+    ] = "electrical"
     room_type: Literal[
         "classroom",
         "corridor",
@@ -90,6 +110,16 @@ class ElectricalTemplateRequest(BaseModel):
         "washroom",
         "lab",
         "reception",
+        "chemistry_lab",
+        "physics_lab",
+        "computer_lab",
+        "principal_office",
+        "meeting_room",
+        "icu",
+        "emergency_ward",
+        "patient_waiting",
+        "blood_collection_lab",
+        "operation_theatre",
     ] = "classroom"
     room_name: str | None = None
     room_width_mm: float
@@ -97,10 +127,53 @@ class ElectricalTemplateRequest(BaseModel):
     ceiling_height_mm: float = 3000.0
     occupancy: int = 0
     entry_side: Literal["north", "south", "east", "west"] = "south"
+    teaching_wall_side: Literal["north", "south", "east", "west"] | None = None
     stage_depth_mm: float = 6000.0
     seating_rows: int = 0
     preferred_voltage_v: float = 230.0
     include_emergency_circuit: bool = True
+
+
+INDIAN_ELECTRICAL_CODE_REFERENCES = [
+    "NBC 2016 Part 8 — Electrical & allied installations (conceptual routing).",
+    "IS 732:1989 — Electrical wiring installations (practice reference).",
+    "IS 1646:2007 — Emergency lighting for buildings (egress / occupied zones).",
+]
+
+
+def _building_plan_skew_mm(building_type: str, width_mm: float, depth_mm: float) -> tuple[float, float]:
+    """Deterministic asymmetry so templates differ by building typology (not always centered)."""
+    skews: dict[str, tuple[float, float]] = {
+        "college": (0.035, -0.018),
+        "school": (0.0, 0.0),
+        "university": (0.042, -0.022),
+        "hospital": (-0.028, 0.032),
+        "commercial_complex": (0.048, 0.022),
+        "mall": (0.052, 0.028),
+        "government_office": (0.018, 0.005),
+        "private_office": (0.032, 0.018),
+        "residential_high_rise": (0.014, 0.038),
+    }
+    sx, sy = skews.get(building_type, (0.02, 0.01))
+    return sx * width_mm, sy * depth_mm
+
+
+def _teaching_wall_shift_mm(
+    teaching_wall_side: str | None,
+    width_mm: float,
+    depth_mm: float,
+) -> tuple[float, float]:
+    """Shift luminaire cluster away from the board wall toward the occupied zone."""
+    if not teaching_wall_side:
+        return 0.0, 0.0
+    # Board on west → shift fixtures east; board on north → shift south, etc.
+    table = {
+        "west": (0.07 * width_mm, 0.0),
+        "east": (-0.07 * width_mm, 0.0),
+        "south": (0.0, 0.07 * depth_mm),
+        "north": (0.0, -0.07 * depth_mm),
+    }
+    return table.get(teaching_wall_side, (0.0, 0.0))
 
 
 def _point3(x: float, y: float, z: float = 0.0) -> dict[str, float]:
@@ -708,22 +781,39 @@ async def electrical_template_preview(
     project, elements, model_elements, _materials = await _load_project_bundle(project_id, db)
     context = _project_context(project, elements, model_elements)
 
+    if payload.mep_discipline != "electrical":
+        raise HTTPException(
+            status_code=400,
+            detail="This preview generates Electrical layouts only (discipline='electrical'). Use other MEP tools for sewage, fire, or HVAC.",
+        )
+
     width_mm = max(float(payload.room_width_mm), 1.0)
     depth_mm = max(float(payload.room_depth_mm), 1.0)
     ceiling_height_mm = max(float(payload.ceiling_height_mm), 2400.0)
     occupancy = max(int(payload.occupancy), 0)
+    stage_depth_mm = max(float(payload.stage_depth_mm), 1200.0)
 
     room_type = payload.room_type
-    template_id = f"edu_{room_type}_v1"
+    template_id = f"mep_{payload.building_type}_{room_type}_v1"
     base_voltage = max(float(payload.preferred_voltage_v), 110.0)
     center_x = width_mm / 2.0
     center_y = depth_mm / 2.0
     entry_margin = min(900.0, max(450.0, width_mm * 0.12))
 
+    plan_skew_x, plan_skew_y = _building_plan_skew_mm(payload.building_type, width_mm, depth_mm)
+    tw_dx, tw_dy = _teaching_wall_shift_mm(payload.teaching_wall_side, width_mm, depth_mm)
+
     fixtures: list[dict[str, Any]] = []
     circuits: list[dict[str, Any]] = []
     manual_edit_hints: list[str] = []
     rules_used: list[str] = []
+    rules_used.extend(INDIAN_ELECTRICAL_CODE_REFERENCES)
+    if payload.building_type == "hospital":
+        rules_used.append("Healthcare occupancy — coordinate IPS / medical earthing in detailed design.")
+    if payload.teaching_wall_side:
+        manual_edit_hints.append(
+            f"Teaching wall set to {payload.teaching_wall_side}; luminaire cluster biased away from the board wall.",
+        )
 
     def add_circuit(circuit_id: str, label: str, breaker: str, load_type: str, route_start: tuple[float, float], route_end: tuple[float, float]) -> dict[str, Any]:
         route = _template_route(route_start, route_end)
@@ -748,8 +838,8 @@ async def electrical_template_preview(
         db_point = (250.0, entry_margin)
 
     if room_type == "classroom":
-        center_x = width_mm * 0.5
-        center_y = depth_mm * 0.5
+        center_x = width_mm * 0.5 + plan_skew_x + tw_dx
+        center_y = depth_mm * 0.5 + plan_skew_y + tw_dy
         offset_x = max(900.0, width_mm * 0.16)
         offset_y = max(700.0, depth_mm * 0.14)
         light_positions = [
@@ -762,9 +852,9 @@ async def electrical_template_preview(
         socket_positions = [(width_mm * 0.12, socket_y), (width_mm * 0.88, socket_y), (width_mm * 0.12, 250.0), (width_mm * 0.88, 250.0)]
         switch_positions = [(entry_margin, 200.0), (entry_margin + 140.0, 200.0)]
         rules_used.extend([
-            "Four ceiling luminaires spread on a 2x2 grid.",
-            "Socket outlets distributed across the front and rear walls.",
-            "Switchboard is placed near the entry side.",
+            "Four ceiling luminaires on a teaching-biased grid (not purely symmetric when teaching wall is set).",
+            "Socket outlets distributed across front/rear walls per classroom practice.",
+            "Switchboard near entry; NBC/IS wiring discipline for routing.",
         ])
         manual_edit_hints.extend([
             "Move the rear sockets if the classroom has a teaching wall or projector screen.",
@@ -790,14 +880,16 @@ async def electrical_template_preview(
         add_circuit("ckt_corridor_light", "Corridor Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
         if payload.include_emergency_circuit:
             add_circuit("ckt_corridor_emg", "Emergency Circuit", "6A MCB", "emergency", db_point, (width_mm * 0.9, depth_mm * 0.5))
+        corridor_y = depth_mm * (0.5 + 0.25 * (plan_skew_y / max(depth_mm, 1.0)))
+        corridor_y = max(depth_mm * 0.28, min(depth_mm * 0.72, corridor_y))
         for idx in range(count):
             x_mm = spacing * (idx + 1)
-            fixtures.append(_template_fixture(f"corridor_light_{idx + 1}", "light", x_mm, depth_mm * 0.5, circuit_id="ckt_corridor_light", note="Linear corridor light"))
+            fixtures.append(_template_fixture(f"corridor_light_{idx + 1}", "light", x_mm, corridor_y, circuit_id="ckt_corridor_light", note="Linear corridor light"))
         if payload.include_emergency_circuit:
-            fixtures.append(_template_fixture("corridor_emergency_1", "emergency_light", width_mm * 0.08, depth_mm * 0.5, circuit_id="ckt_corridor_emg", note="Exit-side emergency light"))
-            fixtures.append(_template_fixture("corridor_emergency_2", "emergency_light", width_mm * 0.92, depth_mm * 0.5, circuit_id="ckt_corridor_emg", note="Exit-side emergency light"))
+            fixtures.append(_template_fixture("corridor_emergency_1", "emergency_light", width_mm * 0.08, corridor_y, circuit_id="ckt_corridor_emg", note="Exit-side emergency light"))
+            fixtures.append(_template_fixture("corridor_emergency_2", "emergency_light", width_mm * 0.92, corridor_y, circuit_id="ckt_corridor_emg", note="Exit-side emergency light"))
 
-    elif room_type == "staff_room":
+    elif room_type in ("staff_room", "principal_office", "meeting_room"):
         fixtures.extend([
             _template_fixture("staff_light_1", "light", width_mm * 0.33, depth_mm * 0.35, circuit_id="ckt_staff_light", note="Ceiling light"),
             _template_fixture("staff_light_2", "light", width_mm * 0.66, depth_mm * 0.65, circuit_id="ckt_staff_light", note="Ceiling light"),
@@ -806,7 +898,12 @@ async def electrical_template_preview(
             _template_fixture("staff_socket_3", "socket", width_mm * 0.12, depth_mm * 0.12, circuit_id="ckt_staff_power", wall_side="north", note="Printer socket"),
             _template_fixture("staff_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_staff_light", wall_side=payload.entry_side, note="Switch near entry"),
         ])
-        rules_used.append("Two lighting points and a small socket cluster for desks/printers.")
+        if room_type == "principal_office":
+            rules_used.append("Principal office — desk/task lighting with visitor-side power.")
+        elif room_type == "meeting_room":
+            rules_used.append("Meeting room — AV wall power and conferencing outlets (conceptual).")
+        else:
+            rules_used.append("Two lighting points and a small socket cluster for desks/printers.")
         manual_edit_hints.append("Add a dedicated AC or pantry outlet if the staff room needs it.")
         add_circuit("ckt_staff_light", "Staff Room Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
         add_circuit("ckt_staff_power", "Staff Room Power", "16A MCB", "power", db_point, (width_mm * 0.88, depth_mm * 0.88))
@@ -843,7 +940,7 @@ async def electrical_template_preview(
             "If the auditorium is tiered, adjust the y positions to match the stepped seating layout.",
         ])
         add_circuit("ckt_auditorium_seating", "Auditorium Seating Lights", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.55))
-        add_circuit("ckt_auditorium_stage", "Auditorium Stage Power", "20A MCB", "stage_power", db_point, (width_mm * 0.5, stage_depth_mm))
+        add_circuit("ckt_auditorium_stage", "Auditorium Stage Power", "20A MCB", "stage_power", db_point, (width_mm * 0.5, stage_depth_mm * 0.5))
         if payload.include_emergency_circuit:
             add_circuit("ckt_auditorium_emg", "Auditorium Emergency", "6A MCB", "emergency", db_point, (width_mm * 0.92, depth_mm * 0.5))
         for row in range(light_rows):
@@ -879,12 +976,28 @@ async def electrical_template_preview(
             add_circuit("ckt_washroom_emg", "Washroom Emergency", "6A MCB", "emergency", db_point, (width_mm * 0.9, depth_mm * 0.5))
             fixtures.append(_template_fixture("wash_emergency_1", "emergency_light", width_mm * 0.12, depth_mm * 0.88, circuit_id="ckt_washroom_emg", note="Emergency light"))
 
-    elif room_type == "lab":
+    elif room_type in ("lab", "chemistry_lab", "physics_lab", "computer_lab"):
         bench_count = max(2, int(round(width_mm / 2400.0)))
-        rules_used.extend([
-            "Lighting is placed on the working grid.",
-            "Socket density is higher to support lab benches and equipment.",
-        ])
+        if room_type == "chemistry_lab":
+            rules_used.extend([
+                "Chemistry lab — bench lighting grid; segregate exhaust/island loads in detailed design.",
+                "Higher caution for segregated circuits near sinks/fume zones (conceptual).",
+            ])
+        elif room_type == "physics_lab":
+            rules_used.extend([
+                "Physics lab — instrument benches with grouped power for experiments.",
+                "Consider EPBX / earth reference for sensitive benches in execution.",
+            ])
+        elif room_type == "computer_lab":
+            rules_used.extend([
+                "Computer lab — elevated ICT outlet density along bench rows.",
+                "Dedicated UPS / earth bus for ICT loads in detailed design.",
+            ])
+        else:
+            rules_used.extend([
+                "Lighting is placed on the working grid.",
+                "Socket density is higher to support lab benches and equipment.",
+            ])
         manual_edit_hints.extend([
             "Increase protected outlets if the lab has equipment islands.",
             "Keep emergency isolation near the door if the lab requires shutdown control.",
@@ -904,17 +1017,66 @@ async def electrical_template_preview(
         if payload.include_emergency_circuit:
             fixtures.append(_template_fixture("lab_emergency_1", "emergency_light", width_mm * 0.08, depth_mm * 0.12, circuit_id="ckt_lab_emg", note="Emergency exit light"))
 
-    else:  # reception
+    elif room_type == "icu":
+        rules_used.extend([
+            "ICU — headwall medical power groups (conceptual IPS coordination).",
+            "Night / observation lighting split from general circuits.",
+        ])
+        add_circuit("ckt_icu_general", "ICU General Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.35, depth_mm * 0.5))
+        add_circuit("ckt_icu_med", "ICU Medical Power", "20A MCB", "power", db_point, (width_mm * 0.15, depth_mm * 0.55))
+        fixtures.extend([
+            _template_fixture("icu_light_1", "light", width_mm * 0.35, depth_mm * 0.42, circuit_id="ckt_icu_general", note="General observation"),
+            _template_fixture("icu_light_2", "light", width_mm * 0.65, depth_mm * 0.42, circuit_id="ckt_icu_general", note="General observation"),
+            _template_fixture("icu_socket_bed", "socket", width_mm * 0.12, depth_mm * 0.55, circuit_id="ckt_icu_med", wall_side="west", note="Headwall medical group"),
+            _template_fixture("icu_socket_eq", "socket", width_mm * 0.88, depth_mm * 0.48, circuit_id="ckt_icu_med", wall_side="east", note="Equipment outlet"),
+            _template_fixture("icu_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_icu_general", wall_side=payload.entry_side, note="Lighting control"),
+        ])
+
+    elif room_type == "operation_theatre":
+        rules_used.extend([
+            "OT — isolated panels / UPS feeds coordinated with medical planner (conceptual).",
+            "Non-glare surgical field lighting layout reference.",
+        ])
+        add_circuit("ckt_ot_clean", "OT Clean Power", "32A MCB", "power", db_point, (width_mm * 0.5, depth_mm * 0.45))
+        add_circuit("ckt_ot_ambient", "OT Ambient", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.6))
+        fixtures.extend([
+            _template_fixture("ot_light_field", "light", width_mm * 0.5, depth_mm * 0.48, circuit_id="ckt_ot_ambient", note="Procedure field"),
+            _template_fixture("ot_light_perim", "light", width_mm * 0.22, depth_mm * 0.72, circuit_id="ckt_ot_ambient", note="Perimeter"),
+            _template_fixture("ot_light_perim2", "light", width_mm * 0.78, depth_mm * 0.72, circuit_id="ckt_ot_ambient", note="Perimeter"),
+            _template_fixture("ot_panel", "socket", width_mm * 0.88, depth_mm * 0.35, circuit_id="ckt_ot_clean", wall_side="east", note="Isolated panel reference"),
+            _template_fixture("ot_switch", "switch", entry_margin, 180.0, circuit_id="ckt_ot_ambient", wall_side=payload.entry_side, note="Control"),
+        ])
+
+    elif room_type in ("emergency_ward", "patient_waiting", "blood_collection_lab"):
+        rules_used.extend([
+            "Healthcare circulation / diagnostics — ingress lighting and accessible outlets.",
+            "Coordinate emergency egress luminaires with NBC exit requirements.",
+        ])
+        add_circuit("ckt_hc_light", "Healthcare Zone Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.45))
+        add_circuit("ckt_hc_power", "Healthcare Zone Power", "16A MCB", "power", db_point, (width_mm * 0.82, depth_mm * 0.72))
+        fixtures.extend([
+            _template_fixture("hc_light_1", "light", width_mm * 0.35 + plan_skew_x * 0.3, depth_mm * 0.4, circuit_id="ckt_hc_light", note="General"),
+            _template_fixture("hc_light_2", "light", width_mm * 0.65 + plan_skew_x * 0.3, depth_mm * 0.55, circuit_id="ckt_hc_light", note="General"),
+            _template_fixture("hc_socket_1", "socket", width_mm * 0.15, depth_mm * 0.78, circuit_id="ckt_hc_power", wall_side="south", note="Bed/waiting outlet"),
+            _template_fixture("hc_socket_2", "socket", width_mm * 0.85, depth_mm * 0.78, circuit_id="ckt_hc_power", wall_side="south", note="Equipment"),
+            _template_fixture("hc_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_hc_light", wall_side=payload.entry_side, note="Switch"),
+        ])
+        if payload.include_emergency_circuit:
+            add_circuit("ckt_hc_emg", "Healthcare Emergency", "6A MCB", "emergency", db_point, (width_mm * 0.92, depth_mm * 0.5))
+            fixtures.append(_template_fixture("hc_emg_1", "emergency_light", width_mm * 0.5, depth_mm * 0.88, circuit_id="ckt_hc_emg", note="Egress"))
+
+    elif room_type == "reception":
+        rx = center_x + plan_skew_x * 0.8
         rules_used.extend([
             "Front desk sockets are grouped near the reception counter.",
-            "Ambient lighting is centered above the waiting area.",
+            "Ambient lighting biased by building typology (not fixed single-axis).",
         ])
         manual_edit_hints.append("Move the desk sockets if the counter orientation changes after furniture placement.")
         add_circuit("ckt_reception_light", "Reception Lighting", "10A MCB", "lighting", db_point, (width_mm * 0.5, depth_mm * 0.5))
         add_circuit("ckt_reception_power", "Reception Power", "16A MCB", "power", db_point, (width_mm * 0.88, depth_mm * 0.78))
         fixtures.extend([
-            _template_fixture("rec_light_1", "light", center_x, depth_mm * 0.33, circuit_id="ckt_reception_light", note="Ambient light"),
-            _template_fixture("rec_light_2", "light", center_x, depth_mm * 0.68, circuit_id="ckt_reception_light", note="Ambient light"),
+            _template_fixture("rec_light_1", "light", rx, depth_mm * 0.33 + plan_skew_y * 0.5, circuit_id="ckt_reception_light", note="Ambient light"),
+            _template_fixture("rec_light_2", "light", rx, depth_mm * 0.68 + plan_skew_y * 0.5, circuit_id="ckt_reception_light", note="Ambient light"),
             _template_fixture("rec_switch_1", "switch", entry_margin, 180.0, circuit_id="ckt_reception_light", wall_side=payload.entry_side, note="Main switch"),
             _template_fixture("rec_socket_1", "socket", width_mm * 0.82, depth_mm * 0.78, circuit_id="ckt_reception_power", wall_side="south", note="Counter socket"),
             _template_fixture("rec_socket_2", "socket", width_mm * 0.72, depth_mm * 0.78, circuit_id="ckt_reception_power", wall_side="south", note="Printer socket"),
@@ -934,6 +1096,9 @@ async def electrical_template_preview(
         "room": {
             "name": payload.room_name or room_type.replace("_", " ").title(),
             "type": room_type,
+            "building_type": payload.building_type,
+            "mep_discipline": payload.mep_discipline,
+            "teaching_wall_side": payload.teaching_wall_side,
             "width_mm": round(width_mm, 2),
             "depth_mm": round(depth_mm, 2),
             "ceiling_height_mm": round(ceiling_height_mm, 2),
