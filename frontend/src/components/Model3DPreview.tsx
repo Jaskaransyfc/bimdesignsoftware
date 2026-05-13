@@ -110,17 +110,21 @@ import {
   Element,
   ElectricalFixture,
   FurnitureItem,
+  Level,
   Polyline,
   Window,
   Wall,
   Railing,
   Roof,
 } from "@/types/modeling";
+import { mmToWorldY } from "@/lib/calculations";
 
 interface Model3DPreviewProps {
   elements: Element[];
   projectId: string;
   selectedElementId?: string | null;
+  levels?: Level[];
+  activeLevelId?: string | null;
 }
 
 const PLAN_SCALE = 10;
@@ -132,10 +136,13 @@ export default function Model3DPreview({
   elements,
   projectId,
   selectedElementId,
+  levels = [],
+  activeLevelId = null,
 }: Model3DPreviewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [showDebugGuides, setShowDebugGuides] = useState(false);
   const [furnitureItems, setFurnitureItems] = useState<FurnitureItem[]>([]);
+  const [visibleLevelIds, setVisibleLevelIds] = useState<Record<string, boolean>>({});
   const [importedModels, setImportedModels] = useState<
     Array<{
       id: string;
@@ -150,6 +157,17 @@ export default function Model3DPreview({
   } | null>(null);
 
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  useEffect(() => {
+    if (!levels.length) return;
+    setVisibleLevelIds((prev) => {
+      const next: Record<string, boolean> = {};
+      levels.forEach((level) => {
+        next[level.id] = prev[level.id] ?? true;
+      });
+      return next;
+    });
+  }, [levels]);
 
   const normalizeFurnitureItem = (item: any): FurnitureItem => {
     return {
@@ -541,18 +559,45 @@ export default function Model3DPreview({
     const axis = new THREE.AxesHelper(80);
     scene.add(axis);
 
-    const model3D = convert2DTo3D(elements, projectId);
+    const levelMap = new Map(levels.map((level) => [level.id, level]));
+    const filteredElements = elements.filter((element) => {
+      const levelId = (element as any).levelId;
+      if (!levelId) return true;
+      return visibleLevelIds[levelId] ?? true;
+    });
+    const getYOffset = (levelId?: string) => {
+      if (!levelId) return 0;
+      const level = levelMap.get(levelId);
+      return level ? mmToWorldY(level.elevation_mm) : 0;
+    };
+
+    const levelGroups = new Map<string, THREE.Group>();
+    const getLevelGroup = (levelId?: string) => {
+      if (!levelId) return scene;
+      let group = levelGroups.get(levelId);
+      if (!group) {
+        group = new THREE.Group();
+        group.name = `levelGroup_${levelId}`;
+        group.position.y = getYOffset(levelId);
+        group.visible = visibleLevelIds[levelId] ?? true;
+        scene.add(group);
+        levelGroups.set(levelId, group);
+      }
+      return group;
+    };
+
+    const model3D = convert2DTo3D(filteredElements, projectId);
     const wallById = new Map(model3D.walls.map((wall) => [wall.id, wall]));
-    const electricalFixtures = elements.filter(
+    const electricalFixtures = filteredElements.filter(
       (element): element is ElectricalFixture =>
         element.type === "electrical_fixture",
     );
-    const circuitLines = elements.filter(
+    const circuitLines = filteredElements.filter(
       (element): element is Polyline => element.type === "polyline",
     );
     const selectedElement =
       selectedElementId != null
-        ? (elements.find((element) => element.id === selectedElementId) ?? null)
+        ? (filteredElements.find((element) => element.id === selectedElementId) ?? null)
         : null;
     const selectedCircuitId =
       selectedElement?.type === "electrical_fixture"
@@ -573,12 +618,12 @@ export default function Model3DPreview({
           )
         : new Set<string>();
     const doorById = new Map(
-      elements
+      filteredElements
         .filter((element): element is Door => element.type === "door")
         .map((door) => [door.id, door]),
     );
     const windowById = new Map(
-      elements
+      filteredElements
         .filter((element): element is Window => element.type === "window")
         .map((window_) => [window_.id, window_]),
     );
@@ -688,7 +733,7 @@ export default function Model3DPreview({
     };
 
     const wallToOpeningMap = new Map<string, (Door | Window)[]>();
-    elements.forEach((el) => {
+    filteredElements.forEach((el) => {
       if (el.type === "door" || el.type === "window") {
         const opening = el as Door | Window;
         if (opening.wallId) {
@@ -999,7 +1044,7 @@ export default function Model3DPreview({
         height / 2,
         wall.startPoint.y / PLAN_SCALE,
       );
-      scene.add(startFiller);
+      getLevelGroup((wall as any).levelId).add(startFiller);
 
       const endFiller = new THREE.Mesh(fillerGeom, fillerMat);
       endFiller.position.set(
@@ -1007,7 +1052,7 @@ export default function Model3DPreview({
         height / 2,
         wall.endPoint.y / PLAN_SCALE,
       );
-      scene.add(endFiller);
+      getLevelGroup((wall as any).levelId).add(endFiller);
     });
 
     if (showDebugGuides) {
@@ -2279,6 +2324,16 @@ export default function Model3DPreview({
     floor.position.y = 0;
     scene.add(floor);
 
+    const sortedLevels = [...levels].sort((a, b) => a.order - b.order);
+    sortedLevels.slice(0, -1).forEach((level) => {
+      const slab = new THREE.Mesh(
+        new THREE.BoxGeometry(500, 330 / MM_SCALE, 500),
+        new THREE.MeshStandardMaterial({ color: "#94a3b8", transparent: true, opacity: 0.35 }),
+      );
+      slab.position.set(0, mmToWorldY(level.elevation_mm) + (330 / MM_SCALE) / 2, 0);
+      scene.add(slab);
+    });
+
     const onResize = () => {
       if (!containerRef.current) return;
       const width = containerRef.current.clientWidth;
@@ -2336,6 +2391,9 @@ export default function Model3DPreview({
     importedModels,
     showDebugGuides,
     selectedElementId,
+    levels,
+    visibleLevelIds,
+    activeLevelId,
   ]);
 
   return (
@@ -2359,6 +2417,21 @@ export default function Model3DPreview({
         >
           Reset View
         </button>
+      </div>
+      <div className="absolute left-3 top-28 z-10 rounded border border-slate-700 bg-slate-900/90 p-2 text-xs text-slate-100">
+        <div className="mb-1 font-semibold">Levels</div>
+        {levels.map((level) => (
+          <label key={level.id} className="flex items-center gap-2 mb-1">
+            <input
+              type="checkbox"
+              checked={visibleLevelIds[level.id] ?? true}
+              onChange={(event) =>
+                setVisibleLevelIds((prev) => ({ ...prev, [level.id]: event.target.checked }))
+              }
+            />
+            <span>{level.name}</span>
+          </label>
+        ))}
       </div>
     </div>
   );
