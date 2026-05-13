@@ -586,8 +586,29 @@ export default function Model3DPreview({
       return group;
     };
 
+    const renderOnLevel = <T,>(
+      levelId: string | undefined,
+      render: () => T,
+    ): T => {
+      const target = getLevelGroup(levelId);
+      if (target === scene) return render();
+
+      const before = new Set(scene.children);
+      const result = render();
+      const addedChildren = scene.children.filter(
+        (child: THREE.Object3D) => !before.has(child),
+      );
+      addedChildren.forEach((child: THREE.Object3D) => target.add(child));
+      return result;
+    };
+
     const model3D = convert2DTo3D(filteredElements, projectId);
     const wallById = new Map(model3D.walls.map((wall) => [wall.id, wall]));
+    const wallElementById = new Map(
+      filteredElements
+        .filter((element): element is Wall => element.type === "wall")
+        .map((wall) => [wall.id, wall]),
+    );
     const electricalFixtures = filteredElements.filter(
       (element): element is ElectricalFixture =>
         element.type === "electrical_fixture",
@@ -737,6 +758,14 @@ export default function Model3DPreview({
       if (el.type === "door" || el.type === "window") {
         const opening = el as Door | Window;
         if (opening.wallId) {
+          const hostWall = wallElementById.get(opening.wallId);
+          if (
+            hostWall?.levelId &&
+            opening.levelId &&
+            hostWall.levelId !== opening.levelId
+          ) {
+            return;
+          }
           const list = wallToOpeningMap.get(opening.wallId) || [];
           list.push(opening);
           wallToOpeningMap.set(opening.wallId, list);
@@ -745,6 +774,7 @@ export default function Model3DPreview({
     });
 
     model3D.walls.forEach((wall) => {
+      return renderOnLevel((wall as any).levelId, () => {
       const dx = wall.endPoint.x - wall.startPoint.x;
       const dy = wall.endPoint.y - wall.startPoint.y;
       const length = Math.sqrt(dx * dx + dy * dy) / PLAN_SCALE;
@@ -1053,6 +1083,7 @@ export default function Model3DPreview({
         wall.endPoint.y / PLAN_SCALE,
       );
       getLevelGroup((wall as any).levelId).add(endFiller);
+      });
     });
 
     if (showDebugGuides) {
@@ -1106,9 +1137,10 @@ export default function Model3DPreview({
       });
     }
 
-    elements
+    filteredElements
       .filter((el): el is Railing => el.type === "railing")
       .forEach((railing) => {
+        renderOnLevel(railing.levelId, () => {
         const railL = (railing.length || 8000) / MM_SCALE;
         const railH = (railing.height || 1100) / MM_SCALE;
         const px = railing.position.x / PLAN_SCALE;
@@ -1127,11 +1159,13 @@ export default function Model3DPreview({
         } else {
           renderModernMetalRailing(scene, px, pz, railL, railH, -rotation);
         }
+        });
       });
 
-    elements
+    filteredElements
       .filter((el): el is Roof => el.type === "roof")
       .forEach((roof) => {
+        renderOnLevel(roof.levelId, () => {
         const roofW = (roof.width || 8000) / MM_SCALE;
         const roofD = (roof.depth || 6000) / MM_SCALE;
         const px = roof.position.x / PLAN_SCALE;
@@ -1192,17 +1226,30 @@ export default function Model3DPreview({
             isSelected,
           );
         }
+        });
       });
 
     model3D.doors.forEach((door) => {
+      const sourceDoor = doorById.get(door.id);
+      return renderOnLevel((sourceDoor as any)?.levelId, () => {
       const doorW = Math.max(door.width / MM_SCALE, 0.1);
       const rawDoorH = Math.max(door.height / MM_SCALE, 0.1);
-      const hostWall = door.wallId ? wallById.get(door.wallId) : undefined;
+      const sourceHostWall = door.wallId
+        ? wallElementById.get(door.wallId)
+        : undefined;
+      const hostWall =
+        sourceHostWall?.levelId &&
+        sourceDoor?.levelId &&
+        sourceHostWall.levelId !== sourceDoor.levelId
+          ? undefined
+          : door.wallId
+            ? wallById.get(door.wallId)
+            : undefined;
       const wallHeight = hostWall ? hostWall.height / MM_SCALE : 3.0;
       const doorH = Math.min(rawDoorH, wallHeight);
       const vectors = hostWall ? getWallVectors(hostWall) : null;
 
-      const element = doorById.get(door.id);
+      const element = sourceDoor;
 
       const projectedDoor = projectOpeningCenterToWall(door, hostWall, doorW);
       const px = projectedDoor.x;
@@ -1518,13 +1565,24 @@ export default function Model3DPreview({
 
       // Procedural door fallback (default)
       drawDoor();
+      });
     });
 
     model3D.windows.forEach((window_) => {
+      const sourceWindow = windowById.get(window_.id);
+      return renderOnLevel((sourceWindow as any)?.levelId, () => {
       const winW = Math.max(window_.width / MM_SCALE, 0.1);
-      const hostWall = window_.wallId
-        ? wallById.get(window_.wallId)
+      const sourceHostWall = window_.wallId
+        ? wallElementById.get(window_.wallId)
         : undefined;
+      const hostWall =
+        sourceHostWall?.levelId &&
+        sourceWindow?.levelId &&
+        sourceHostWall.levelId !== sourceWindow.levelId
+          ? undefined
+          : window_.wallId
+            ? wallById.get(window_.wallId)
+            : undefined;
       const vectors = hostWall ? getWallVectors(hostWall) : null;
       const wallHeight = hostWall ? hostWall.height / MM_SCALE : 3.0;
 
@@ -1544,7 +1602,7 @@ export default function Model3DPreview({
         roughness: 0.8,
       });
 
-      const element = windowById.get(window_.id);
+      const element = sourceWindow;
       const projectedWindow = projectOpeningCenterToWall(
         window_,
         hostWall,
@@ -1818,19 +1876,24 @@ export default function Model3DPreview({
       }
 
       drawWindow();
+      });
     });
 
     // --- RENDER RAILINGS ---
-    elements
+    filteredElements
       .filter((el) => el.type === "railing")
       .forEach((railing: any) => {
-        renderRailing(scene, railing, selectedElementId === railing.id);
+        if (!Array.isArray(railing.path)) return;
+        renderOnLevel(railing.levelId, () => {
+          renderRailing(scene, railing, selectedElementId === railing.id);
+        });
       });
 
     // --- RENDER FLOORS ---
-    elements
+    filteredElements
       .filter((el) => el.type === "floor")
       .forEach((floor: any) => {
+        renderOnLevel(floor.levelId, () => {
         const px = floor.position.x / PLAN_SCALE;
         const pz = floor.position.y / PLAN_SCALE;
         const floorStyle = (floor.metadata?.floor_style || "").toLowerCase();
@@ -1911,12 +1974,14 @@ export default function Model3DPreview({
             floor.color,
           );
         }
+        });
       });
 
     // --- RENDER STAIRS ---
-    elements
+    filteredElements
       .filter((el) => el.type === "stairs")
       .forEach((stair: any) => {
+        renderOnLevel(stair.levelId, () => {
         const px = stair.position.x / PLAN_SCALE;
         const pz = stair.position.y / PLAN_SCALE;
         const stairStyle = (stair.metadata?.stair_style || "").toLowerCase();
@@ -1941,6 +2006,7 @@ export default function Model3DPreview({
             selectedElementId === stair.id,
           );
         }
+        });
       });
 
     // Function to create item-specific geometry
@@ -1991,9 +2057,15 @@ export default function Model3DPreview({
       return new THREE.BoxGeometry(w, h, d);
     };
 
-    console.log("📦 Items to render:", furnitureItems.length);
+    const visibleFurnitureItems = furnitureItems.filter((item) => {
+      if (!item.levelId) return true;
+      return visibleLevelIds[item.levelId] ?? true;
+    });
 
-    furnitureItems.forEach((item, idx) => {
+    console.log("📦 Items to render:", visibleFurnitureItems.length);
+
+    visibleFurnitureItems.forEach((item, idx) => {
+      renderOnLevel(item.levelId, () => {
       const h = Math.max((item.height || 0.8) * METERS_TO_WORLD, 0.05);
       const color = item.metadata?.color || "#64748b";
 
@@ -2048,9 +2120,11 @@ export default function Model3DPreview({
       interactiveObjects.push(mesh);
 
       console.log(`✅ Added ${item.assetType} (${item.family}) to scene`);
+      });
     });
 
     electricalFixtures.forEach((fixture) => {
+      renderOnLevel((fixture as any).levelId, () => {
       const kind = fixture.fixtureType;
       const colorByKind: Record<ElectricalFixture["fixtureType"], string> = {
         light: "#facc15",
@@ -2109,9 +2183,11 @@ export default function Model3DPreview({
       };
       scene.add(mesh);
       interactiveObjects.push(mesh);
+      });
     });
 
     circuitLines.forEach((circuit) => {
+      renderOnLevel((circuit as any).levelId, () => {
       const circuitId = circuit.metadata?.circuitId || circuit.id;
       const isSelected =
         selectedElementId === circuit.id ||
@@ -2144,6 +2220,7 @@ export default function Model3DPreview({
       };
       scene.add(line);
       interactiveObjects.push(line);
+      });
     });
 
     // Load imported GLTF/GLB models

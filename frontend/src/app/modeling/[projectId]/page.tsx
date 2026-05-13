@@ -17,13 +17,28 @@ import {
   Layers,
   Home,
   Workflow,
+  Plus,
 } from "lucide-react";
 import CADEditor from "@/components/CADEditor";
 import Model3DPreview from "@/components/Model3DPreview";
 import FurnitureModelImport from "@/components/FurnitureModelImport";
 import LevelPanel from "@/components/LevelPanel";
-import { Element, Door, Window, Wall, Stair, Floor, Level } from "@/types/modeling";
-import { generateProjectBOM, calculateDrawingStats, metersToMM } from "@/lib/calculations";
+import {
+  DEFAULT_FLOOR_HEIGHT_MM,
+  Element,
+  Door,
+  Window,
+  Wall,
+  Stair,
+  Floor,
+  Level,
+} from "@/types/modeling";
+import {
+  generateProjectBOM,
+  calculateDrawingStats,
+  metersToMM,
+  mmToMeters,
+} from "@/lib/calculations";
 import { convert2DTo3D, exportModelAsJSON } from "@/lib/geometry3d";
 import { formatImperial } from "@/lib/calculations";
 
@@ -32,6 +47,31 @@ interface ModelingProps {
     projectId: string;
   }>;
 }
+
+type LevelApiItem = Partial<Level> & {
+  project_id?: string;
+};
+
+const sortLevels = (items: Level[]) =>
+  [...items].sort((a, b) => a.order - b.order);
+
+const normalizeLevel = (
+  level: LevelApiItem,
+  index: number,
+  projectId: string,
+): Level => {
+  const elevationMM = level.elevation_mm ?? metersToMM(level.elevation_m ?? 0);
+  return {
+    id: level.id ?? "",
+    projectId: level.projectId ?? level.project_id ?? projectId,
+    name: level.name ?? `Level ${index}`,
+    elevation_m: level.elevation_m ?? mmToMeters(elevationMM),
+    elevation_mm: elevationMM,
+    order: Number(level.order ?? index),
+    color: level.color,
+    isActive: level.isActive,
+  };
+};
 
 const ColorPicker = ({
   value,
@@ -107,6 +147,7 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   const [applyFlash, setApplyFlash] = useState(false);
   const [levels, setLevels] = useState<Level[]>([]);
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
+  const [isAddingLevel, setIsAddingLevel] = useState(false);
 
   // Update a property on the selected element and propagate to elements array
   const handlePropertyUpdate = (field: string, value: any) => {
@@ -167,7 +208,7 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   useEffect(() => {
     const loadLevels = async () => {
       try {
-        let response = await fetch(`/api/projects/${projectId}/levels`);
+        const response = await fetch(`/api/projects/${projectId}/levels`);
         let data = response.ok ? await response.json() : [];
         if (!Array.isArray(data) || data.length === 0) {
           const initResponse = await fetch(`/api/projects/${projectId}/levels/init`, {
@@ -176,14 +217,11 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
           data = initResponse.ok ? await initResponse.json() : [];
         }
         if (!Array.isArray(data)) data = [];
-        const normalized = data
-          .map((level: any, index: number) => ({
-            ...level,
-            projectId: level.projectId ?? level.project_id ?? projectId,
-            elevation_mm: level.elevation_mm ?? metersToMM(level.elevation_m ?? 0),
-            order: Number(level.order ?? index),
-          }))
-          .sort((a: Level, b: Level) => a.order - b.order);
+        const normalized = sortLevels(
+          data.map((level: LevelApiItem, index: number) =>
+            normalizeLevel(level, index, projectId),
+          ),
+        );
         setLevels(normalized);
         const storageKey = `bim_active_level_${projectId}`;
         const fromStorage = localStorage.getItem(storageKey);
@@ -201,6 +239,48 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
     if (!activeLevelId) return;
     localStorage.setItem(`bim_active_level_${projectId}`, activeLevelId);
   }, [projectId, activeLevelId]);
+
+  const handleAddLevel = async () => {
+    if (isAddingLevel) return;
+
+    const orderedLevels = sortLevels(levels);
+    const nextOrder = orderedLevels.length;
+    const highestMM = orderedLevels.length
+      ? Math.max(...orderedLevels.map((level) => level.elevation_mm))
+      : 0;
+
+    setIsAddingLevel(true);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/levels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: nextOrder === 0 ? "Ground Floor" : `Level ${nextOrder}`,
+          elevation_m: mmToMeters(
+            nextOrder === 0 ? 0 : highestMM + DEFAULT_FLOOR_HEIGHT_MM,
+          ),
+          order: nextOrder,
+        }),
+      });
+
+      if (!response.ok) {
+        alert("Failed to add level. Please try again.");
+        return;
+      }
+
+      const created = normalizeLevel(await response.json(), nextOrder, projectId);
+      const nextLevels = sortLevels([...orderedLevels, created]).map(
+        (level, index) => ({ ...level, order: index }),
+      );
+      setLevels(nextLevels);
+      setActiveLevelId(created.id);
+    } catch (error) {
+      console.error("Failed to add level", error);
+      alert("Failed to add level. Please try again.");
+    } finally {
+      setIsAddingLevel(false);
+    }
+  };
 
   const handleSaveDrawing = async (updatedElements: Element[]) => {
     setElements(updatedElements);
@@ -307,6 +387,16 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={handleAddLevel}
+            disabled={isAddingLevel}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 transition disabled:opacity-50"
+            title="Add next floor level"
+          >
+            <Plus className="w-4 h-4" />
+            {isAddingLevel ? "Adding..." : "Level"}
+          </button>
 
           <button
             onClick={() => setShowProperties(!showProperties)}

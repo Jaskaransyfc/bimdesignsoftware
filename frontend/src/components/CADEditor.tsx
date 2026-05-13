@@ -376,6 +376,62 @@ const deriveWallPreset = (materialName?: string | null) => {
   return { material: "Standard", color: "#ffffff" };
 };
 
+type FurnitureApiItem = {
+  id?: string;
+  projectId?: string;
+  project_id?: string;
+  levelId?: string;
+  level_id?: string;
+  assetType?: string;
+  asset_type?: string;
+  family?: string;
+  x?: number | string | null;
+  y?: number | string | null;
+  z?: number | string | null;
+  width?: number | string | null;
+  depth?: number | string | null;
+  height?: number | string | null;
+  materialId?: string;
+  material_id?: string;
+  metadata?: Record<string, unknown>;
+};
+
+const optionalNumber = (value: number | string | null | undefined) =>
+  value == null ? undefined : Number(value);
+
+const normalizeFurnitureItem = (item: FurnitureApiItem): FurnitureItem => ({
+  id: item.id ?? "",
+  projectId: item.projectId ?? item.project_id ?? "",
+  levelId: item.levelId ?? item.level_id,
+  assetType: item.assetType ?? item.asset_type ?? "",
+  family: item.family ?? "",
+  x: Number(item.x ?? 0),
+  y: Number(item.y ?? 0),
+  z: Number(item.z ?? 0),
+  width: optionalNumber(item.width),
+  depth: optionalNumber(item.depth),
+  height: optionalNumber(item.height),
+  materialId: item.materialId ?? item.material_id,
+  metadata: item.metadata ?? {},
+});
+
+const areLevelsEqual = (a: Level[], b: Level[]) =>
+  a.length === b.length &&
+  a.every((level, index) => {
+    const next = b[index];
+    return (
+      next &&
+      level.id === next.id &&
+      level.projectId === next.projectId &&
+      level.name === next.name &&
+      level.elevation_m === next.elevation_m &&
+      level.elevation_mm === next.elevation_mm &&
+      level.order === next.order &&
+      level.color === next.color &&
+      level.isActive === next.isActive
+    );
+  });
+
 export default function CADEditor({
   projectId,
   onSave,
@@ -447,22 +503,6 @@ export default function CADEditor({
   const [selectedDoor, setSelectedDoor] = useState<Door | null>(null);
   const [showDoorPropertyPanel, setShowDoorPropertyPanel] = useState(false);
 
-  const normalizeFurnitureItem = (item: any): FurnitureItem => ({
-    id: item.id,
-    projectId: item.projectId ?? item.project_id,
-    levelId: item.levelId ?? item.level_id,
-    assetType: item.assetType ?? item.asset_type,
-    family: item.family,
-    x: Number(item.x ?? 0),
-    y: Number(item.y ?? 0),
-    z: Number(item.z ?? 0),
-    width: item.width ?? undefined,
-    depth: item.depth ?? undefined,
-    height: item.height ?? undefined,
-    materialId: item.materialId ?? item.material_id,
-    metadata: item.metadata ?? {},
-  });
-
   // Ensure client-side rendering
   useEffect(() => {
     setIsClient(true);
@@ -506,13 +546,24 @@ export default function CADEditor({
     };
   }, []);
 
-  // Load levels and furniture
+  // Keep externally managed levels in sync without ref churn causing state loops.
   useEffect(() => {
-    const hasExternalLevels = propLevels.length > 0;
-    if (hasExternalLevels) {
-      setLevels(propLevels);
-      setSelectedLevelId(propActiveLevelId || propLevels[0]?.id || null);
-    }
+    if (propLevels.length === 0) return;
+
+    setLevels((current) =>
+      areLevelsEqual(current, propLevels) ? current : propLevels,
+    );
+
+    const nextSelectedLevelId = propActiveLevelId || propLevels[0]?.id || null;
+    setSelectedLevelId((current) =>
+      current === nextSelectedLevelId ? current : nextSelectedLevelId,
+    );
+  }, [propLevels, propActiveLevelId]);
+
+  // Load levels only when this editor owns level data.
+  useEffect(() => {
+    if (propLevels.length > 0) return;
+    let cancelled = false;
 
     const loadLevels = async () => {
       try {
@@ -520,8 +571,12 @@ export default function CADEditor({
         const res = await fetch(`/api/projects/${projectId}/levels`);
         if (res.ok) {
           const data = await res.json();
+          if (cancelled) return;
+
           if (Array.isArray(data) && data.length > 0) {
-            setLevels(data);
+            setLevels((current) =>
+              areLevelsEqual(current, data) ? current : data,
+            );
             setSelectedLevelId((current) => current || data[0].id);
           } else {
             const initRes = await fetch(
@@ -532,6 +587,7 @@ export default function CADEditor({
             );
             if (initRes.ok) {
               const level = await initRes.json();
+              if (cancelled) return;
               setLevels([level]);
               setSelectedLevelId(level.id);
             } else {
@@ -552,6 +608,7 @@ export default function CADEditor({
           );
           if (initRes.ok) {
             const level = await initRes.json();
+            if (cancelled) return;
             setLevels([level]);
             setSelectedLevelId(level.id);
           }
@@ -559,15 +616,27 @@ export default function CADEditor({
           console.error("Failed to initialize default level:", initError);
         }
       } finally {
-        setIsLoadingLevels(false);
+        if (!cancelled) setIsLoadingLevels(false);
       }
     };
+
+    loadLevels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, propLevels.length]);
+
+  // Load project furniture separately from level prop synchronization.
+  useEffect(() => {
+    let cancelled = false;
 
     const loadFurniture = async () => {
       try {
         const res = await fetch(`/api/projects/${projectId}/furniture`);
         if (res.ok) {
           const data = await res.json();
+          if (cancelled) return;
           const items = Array.isArray(data) ? data : [];
           setFurnitureItems(items.map(normalizeFurnitureItem));
         }
@@ -581,6 +650,7 @@ export default function CADEditor({
         const res = await fetch(`/api/projects/${projectId}/furniture/library`);
         if (res.ok) {
           const data = await res.json();
+          if (cancelled) return;
           const library = data.library || [];
           setFurnitureLibrary(library);
           if (library.length > 0) {
@@ -595,12 +665,13 @@ export default function CADEditor({
       }
     };
 
-    if (!hasExternalLevels) {
-      loadLevels();
-    }
     loadFurniture();
     loadFurnitureLibrary();
-  }, [projectId, propLevels, propActiveLevelId]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     const loadDoorLibrary = async () => {
@@ -669,14 +740,6 @@ export default function CADEditor({
   }, [levels, selectedLevelId, propLevels.length]);
 
   useEffect(() => {
-    if (propLevels.length > 0) setLevels(propLevels);
-  }, [propLevels]);
-
-  useEffect(() => {
-    if (propLevels.length > 0) setSelectedLevelId(propActiveLevelId);
-  }, [propLevels.length, propActiveLevelId]);
-
-  useEffect(() => {
     onActiveLevelChange?.(selectedLevelId);
   }, [selectedLevelId, onActiveLevelChange]);
 
@@ -694,15 +757,18 @@ export default function CADEditor({
   useEffect(() => {
     if (!levels.length) return;
     const fallbackId = levels[0].id;
-    setElements((prev) =>
-      prev.map((element) => {
+    setElements((prev) => {
+      let changed = false;
+      const next = prev.map((element) => {
         if (element.type === "dimension" || element.type === "text" || element.type === "polyline") {
           return element;
         }
         if ((element as any).levelId) return element;
+        changed = true;
         return { ...element, levelId: fallbackId } as Element;
-      }),
-    );
+      });
+      return changed ? next : prev;
+    });
   }, [levels]);
 
   if (!isClient) return <div className="w-full h-full bg-slate-700" />;
@@ -712,6 +778,9 @@ export default function CADEditor({
   // ─────────────────────────────────────────────────────────
 
   const walls = elements.filter((e): e is Wall => e.type === "wall");
+  const activeLevelWalls = walls.filter(
+    (wall) => !selectedLevelId || wall.levelId === selectedLevelId,
+  );
   const polylines = elements.filter(
     (e): e is Polyline => e.type === "polyline",
   );
@@ -786,7 +855,7 @@ export default function CADEditor({
     let nearest: Wall | undefined;
     let nearestDistance = Number.POSITIVE_INFINITY;
 
-    for (const wall of walls) {
+    for (const wall of activeLevelWalls) {
       const hit = projectPointOnWall(p, wall);
       if (hit.distance < nearestDistance) {
         nearestDistance = hit.distance;
