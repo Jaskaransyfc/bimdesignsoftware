@@ -1360,17 +1360,29 @@ export default function CADEditor({
     const isSelected =
       selectedIds.includes(poly.id) ||
       (circuitId ? selectedCircuitIds.has(circuitId) : false);
+    const vDrop = poly.metadata?.voltageDropPct || 0;
+    const isOverloaded = vDrop > 3.0;
+    
     return (
       <Group key={poly.id} onClick={() => setSelectedIds([poly.id])}>
         <Line
           points={poly.points || []}
-          stroke={isSelected ? "#f59e0b" : poly.stroke || "#9ca3af"}
+          stroke={
+            isSelected 
+              ? "#f59e0b" 
+              : isOverloaded 
+                ? "#ef4444" 
+                : poly.stroke || "#9ca3af"
+          }
           strokeWidth={
-            isSelected ? (poly.strokeWidth || 2) + 2 : poly.strokeWidth || 2
+            isSelected || isOverloaded 
+              ? (poly.strokeWidth || 2) + 2 
+              : poly.strokeWidth || 2
           }
           lineCap="round"
           lineJoin="round"
         />
+
         {isSelected && (
           <Line
             points={poly.points || []}
@@ -2122,6 +2134,8 @@ export default function CADEditor({
   ) => {
     const circuitId = fixture.circuitId || fixture.metadata?.circuitId || null;
     const isSelected = selectedIds.includes(fixture.id);
+    const isCircuitSelected =
+      isSelected || (circuitId ? selectedCircuitIds.has(circuitId) : false);
     const kind = fixture.fixtureType;
     const fillByKind: Record<ElectricalFixture["fixtureType"], string> = {
       light: "#facc15",
@@ -2161,29 +2175,62 @@ export default function CADEditor({
         onDragEnd={(e) => {
           if (isPreview) return;
           const pos = e.target.position();
+          const newPos = { x: pos.x, y: pos.y };
+          // Delta from the fixture's original canvas position to its new position
+          const dx = newPos.x - fixture.position.x;
+          const dy = newPos.y - fixture.position.y;
           setElements((prev) =>
-            prev.map((el) =>
-              el.id === fixture.id
-                ? { ...el, position: { x: pos.x, y: pos.y } }
-                : el,
-            ),
+            prev.map((el) => {
+              // Move the fixture itself
+              if (el.id === fixture.id) {
+                return { ...el, position: newPos };
+              }
+              // Move the branch wire's fixture-end (points[0..1]) by the same delta.
+              // points[2..3] (the attach point on the circuit backbone) stays fixed.
+              if (
+                el.type === "polyline" &&
+                ((el as Polyline).metadata?.branchId === fixture.id ||
+                  (el as Polyline).metadata?.fixtureId === fixture.id)
+              ) {
+                const poly = el as Polyline;
+                const pts = [...poly.points];
+                if (pts.length >= 2) {
+                  pts[0] = pts[0] + dx;
+                  pts[1] = pts[1] + dy;
+                }
+                return { ...poly, points: pts };
+              }
+              return el;
+            }),
           );
           e.target.position({ x: 0, y: 0 });
         }}
       >
+        {isCircuitSelected && (
+          <Circle
+            x={0}
+            y={0}
+            radius={size / 2 + 4}
+            stroke="#ef4444"
+            strokeWidth={4}
+            opacity={0.15}
+          />
+        )}
         <Circle
           x={0}
           y={0}
           radius={size / 2}
           fill={fill}
-          stroke={isSelected ? "#ffffff" : "#0f172a"}
-          strokeWidth={isSelected ? 3 : 1.5}
+          stroke={
+            isSelected ? "#ffffff" : isCircuitSelected ? "#f59e0b" : "#0f172a"
+          }
+          strokeWidth={isSelected ? 3 : isCircuitSelected ? 2.5 : 1.5}
         />
         <KonvaText
           text={label}
           fontSize={10}
           fontStyle="bold"
-          fill={isSelected ? "#ffffff" : "#0f172a"}
+          fill={isSelected ? "#ffffff" : isCircuitSelected ? "#f59e0b" : "#0f172a"}
           align="center"
           verticalAlign="middle"
           width={size}
@@ -2192,6 +2239,7 @@ export default function CADEditor({
           offsetY={5}
         />
       </Group>
+
     );
   };
 

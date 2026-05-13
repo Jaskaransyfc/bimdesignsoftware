@@ -145,6 +145,7 @@ type ElectricalTemplateResult = {
     light_points: number;
     socket_points: number;
     emergency_points: number;
+    overall_health?: string;
   };
   fixtures: Array<{
     id: string;
@@ -156,6 +157,22 @@ type ElectricalTemplateResult = {
     wall_side: string | null;
     note: string;
   }>;
+  analysis?: {
+    engine: string;
+    status: string;
+    overall_health: string;
+    fixtures: Array<{
+      id: string;
+      voltage_v: number;
+      voltage_pu: number;
+      status: string;
+    }>;
+    circuits: Array<{
+      id: string;
+      peak_load_kw: number;
+      voltage_drop_max_pct: number;
+    }>;
+  };
   circuits: Array<{
     id: string;
     label: string;
@@ -1259,18 +1276,27 @@ export default function AdvancedModulesPage() {
 
       // Create polyline elements for circuits (wires)
       const convertedRoutes = (electricalResult.circuits || []).map(
-        (c: any) => ({
-          id: `route_${c.id}`,
-          type: "polyline",
-          points: (c.route || []).flatMap((p: any) => [
-            originX + p.x / MM_TO_CANVAS,
-            originY + p.y / MM_TO_CANVAS,
-          ]),
-          stroke: "#9ca3af",
-          strokeWidth: 2,
-          metadata: { circuitId: c.id },
-        }),
+        (c: any) => {
+          const analysisCkt = electricalResult.analysis?.circuits.find(
+            (ac) => ac.id === c.id,
+          );
+          return {
+            id: `route_${c.id}`,
+            type: "polyline",
+            points: (c.route || []).flatMap((p: any) => [
+              originX + p.x / MM_TO_CANVAS,
+              originY + p.y / MM_TO_CANVAS,
+            ]),
+            stroke: "#9ca3af",
+            strokeWidth: 2,
+            metadata: {
+              circuitId: c.id,
+              voltageDropPct: analysisCkt?.voltage_drop_max_pct || 0,
+            },
+          };
+        },
       );
+
 
       const projectPointToRoute = (
         point: { x: number; y: number },
@@ -2617,7 +2643,102 @@ export default function AdvancedModulesPage() {
                         label="Sockets"
                         value={`${electricalResult.summary.socket_points}`}
                       />
+                      <MetricCard
+                        label="Electrical Health"
+                        value={
+                          electricalResult.summary.overall_health || "Unknown"
+                        }
+                        helper={
+                          electricalResult.analysis?.engine || "No simulation"
+                        }
+                      />
                     </div>
+                    {electricalResult.analysis && (
+                      <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4">
+                        <div className="mb-2 flex items-center justify-between">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-blue-300">
+                            OpenDSS Power Flow Analysis
+                          </h4>
+                          <span className="text-[10px] text-blue-400">
+                            Engine: {electricalResult.analysis.engine}
+                          </span>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="overflow-hidden rounded-xl border border-white/5 bg-slate-950/40">
+                            <table className="min-w-full text-left text-[11px]">
+                              <thead className="bg-slate-900/50 text-slate-500">
+                                <tr>
+                                  <th className="px-3 py-2">Circuit</th>
+                                  <th className="px-3 py-2">Peak Load</th>
+                                  <th className="px-3 py-2">Max V-Drop</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/5 text-slate-300">
+                                {electricalResult.analysis.circuits.map(
+                                  (ckt) => (
+                                    <tr key={ckt.id}>
+                                      <td className="px-3 py-2">{ckt.id}</td>
+                                      <td className="px-3 py-2">
+                                        {ckt.peak_load_kw.toFixed(2)} kW
+                                      </td>
+                                      <td
+                                        className={`px-3 py-2 ${ckt.voltage_drop_max_pct > 3 ? "text-amber-400" : "text-emerald-400"}`}
+                                      >
+                                        {ckt.voltage_drop_max_pct.toFixed(2)}%
+                                      </td>
+                                    </tr>
+                                  ),
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                          <div className="overflow-hidden rounded-xl border border-white/5 bg-slate-950/40">
+                            <table className="min-w-full text-left text-[11px]">
+                              <thead className="bg-slate-900/50 text-slate-500">
+                                <tr>
+                                  <th className="px-3 py-2">Fixture</th>
+                                  <th className="px-3 py-2">Voltage</th>
+                                  <th className="px-3 py-2">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/5 text-slate-300">
+                                {electricalResult.analysis.fixtures
+                                  .slice(0, 5)
+                                  .map((f) => (
+                                    <tr key={f.id}>
+                                      <td className="px-3 py-2">{f.id}</td>
+                                      <td className="px-3 py-2">
+                                        {f.voltage_v.toFixed(1)}V
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <span
+                                          className={`rounded-full px-2 py-0.5 text-[9px] ${f.status === "healthy" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}
+                                        >
+                                          {f.status}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                {electricalResult.analysis.fixtures.length >
+                                  5 && (
+                                  <tr>
+                                    <td
+                                      colSpan={3}
+                                      className="px-3 py-1 text-center text-[9px] text-slate-500"
+                                    >
+                                      +{" "}
+                                      {electricalResult.analysis.fixtures
+                                        .length - 5}{" "}
+                                      more fixtures...
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     <div className="grid gap-3 md:grid-cols-3">
                       {electricalResult.rules_used.map((rule) => (
                         <div

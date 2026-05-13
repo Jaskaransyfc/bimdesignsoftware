@@ -1089,6 +1089,9 @@ async def electrical_template_preview(
     for fixture in fixtures:
         fixture_count_by_type[fixture["type"]] = fixture_count_by_type.get(fixture["type"], 0) + 1
 
+    from app.electrical_analysis import run_electrical_analysis
+    analysis_results = run_electrical_analysis(fixtures, circuits, base_voltage)
+
     result = {
         "project_id": project_id,
         "project_name": project.name,
@@ -1111,9 +1114,11 @@ async def electrical_template_preview(
             "light_points": fixture_count_by_type.get("light", 0) + fixture_count_by_type.get("stage_light", 0),
             "socket_points": fixture_count_by_type.get("socket", 0),
             "emergency_points": fixture_count_by_type.get("emergency_light", 0),
+            "overall_health": analysis_results.get("overall_health", "unknown")
         },
         "fixtures": fixtures,
         "circuits": circuits,
+        "analysis": analysis_results,
         "rules_used": rules_used,
         "manual_edit_hints": manual_edit_hints,
         "project_context": {
@@ -1123,6 +1128,7 @@ async def electrical_template_preview(
     }
     _persist_result(project_id, "module-24-electrical-template.json", result)
     return result
+
 
 
 @router.post("/{project_id}/modules/energy/analyze")
