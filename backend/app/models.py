@@ -1,4 +1,16 @@
-from sqlalchemy import Column, String, DateTime, Enum, Text, JSON, Float, ForeignKey, Boolean
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.sql import func
 import uuid
 from .database import Base
@@ -22,6 +34,14 @@ class ModelElementType(str, enum.Enum):
     ROOM = "Room"
     GRID = "Grid"
     LEVEL = "Level"
+    CEILING = "Ceiling"
+    FURNITURE = "Furniture"
+    ELECTRICAL = "Electrical"
+    HVAC = "HVAC"
+    PLUMBING = "Plumbing"
+    FIRE_FIGHTING = "FireFighting"
+    MEP = "MEP"
+    CUSTOM = "Custom"
 
 class User(Base):
     __tablename__ = "users"
@@ -108,6 +128,9 @@ class ModelElement(Base):
     project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
     level_id = Column(String(36), ForeignKey("levels.id"), nullable=True, index=True)
     type = Column(Enum(ModelElementType), nullable=False)
+    category = Column(String(64), nullable=True, index=True)
+    type_definition_id = Column(String(36), ForeignKey("element_type_definitions.id"), nullable=True, index=True)
+    family_definition_id = Column(String(36), ForeignKey("family_definitions.id"), nullable=True, index=True)
     name = Column(String, nullable=True)
     start = Column(JSON, nullable=True)
     end = Column(JSON, nullable=True)
@@ -116,6 +139,11 @@ class ModelElement(Base):
     geometry = Column(JSON, nullable=True)
     material_id = Column(String(36), ForeignKey("materials.id"), nullable=True)
     parameters = Column(JSON, nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
+    relationships = Column(JSON, nullable=True)
+    transform = Column(JSON, nullable=True)
+    visible = Column(Boolean, nullable=False, default=True)
+    classification = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -129,8 +157,135 @@ class FamilyDefinition(Base):
     category = Column(String, nullable=False)
     schema = Column(JSON, nullable=False)
     preview = Column(JSON, nullable=True)
+    type_parameters = Column(JSON, nullable=True)
+    instance_defaults = Column(JSON, nullable=True)
+    shared_parameters = Column(JSON, nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class BIMCategory(Base):
+    __tablename__ = "bim_categories"
+    __table_args__ = (
+        UniqueConstraint("project_id", "code", name="uq_bim_categories_project_code"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
+    code = Column(String(64), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    discipline = Column(String(64), nullable=False, default="architecture")
+    parent_code = Column(String(64), nullable=True)
+    ifc_class = Column(String(120), nullable=True)
+    element_types = Column(JSON, nullable=False, default=list)
+    default_visible = Column(Boolean, nullable=False, default=True)
+    schedule_enabled = Column(Boolean, nullable=False, default=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class SharedParameterDefinition(Base):
+    __tablename__ = "shared_parameter_definitions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "key", name="uq_shared_parameters_project_key"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
+    key = Column(String(120), nullable=False, index=True)
+    name = Column(String(160), nullable=False)
+    data_type = Column(String(32), nullable=False, default="string")
+    unit_type = Column(String(64), nullable=True)
+    internal_unit = Column(String(32), nullable=True)
+    categories = Column(JSON, nullable=False, default=list)
+    default_value = Column(JSON, nullable=True)
+    required = Column(Boolean, nullable=False, default=False)
+    visible = Column(Boolean, nullable=False, default=True)
+    visibility_rules = Column(JSON, nullable=True)
+    validation = Column(JSON, nullable=True)
+    ifc_property = Column(String(160), nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ElementTypeDefinition(Base):
+    __tablename__ = "element_type_definitions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_element_types_project_name"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    family_definition_id = Column(String(36), ForeignKey("family_definitions.id"), nullable=True, index=True)
+    name = Column(String(160), nullable=False)
+    element_type = Column(String(64), nullable=False, index=True)
+    category = Column(String(64), nullable=False, index=True)
+    type_parameters = Column(JSON, nullable=False, default=dict)
+    instance_parameter_schema = Column(JSON, nullable=True)
+    shared_parameter_keys = Column(JSON, nullable=False, default=list)
+    ifc_entity = Column(String(120), nullable=True)
+    classification = Column(JSON, nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ProjectUnitSettings(Base):
+    __tablename__ = "project_unit_settings"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_project_unit_settings_project"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    length_unit = Column(String(24), nullable=False, default="mm")
+    area_unit = Column(String(24), nullable=False, default="sq.m")
+    volume_unit = Column(String(24), nullable=False, default="cubic_m")
+    pressure_unit = Column(String(24), nullable=False, default="Pa")
+    power_unit = Column(String(24), nullable=False, default="W")
+    force_unit = Column(String(24), nullable=False, default="N")
+    precision = Column(Integer, nullable=False, default=3)
+    metadata_json = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ValidationRuleDefinition(Base):
+    __tablename__ = "validation_rule_definitions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "code", name="uq_validation_rules_project_code"),
+    )
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=True, index=True)
+    code = Column(String(120), nullable=False, index=True)
+    name = Column(String(180), nullable=False)
+    description = Column(Text, nullable=True)
+    target_categories = Column(JSON, nullable=False, default=list)
+    severity = Column(String(24), nullable=False, default="warning")
+    rule_type = Column(String(64), nullable=False, default="metadata")
+    config = Column(JSON, nullable=False, default=dict)
+    enabled = Column(Boolean, nullable=False, default=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class BIMValidationIssue(Base):
+    __tablename__ = "bim_validation_issues"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    element_id = Column(String(36), nullable=True, index=True)
+    rule_code = Column(String(120), nullable=False)
+    severity = Column(String(24), nullable=False, default="warning")
+    message = Column(Text, nullable=False)
+    path = Column(String(240), nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class FurnitureItem(Base):

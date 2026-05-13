@@ -3,33 +3,47 @@ import { Door, Wall } from "@/types/modeling";
 
 const MM_SCALE = 500;
 
+type WallVectors = {
+  dir: {
+    x: number;
+    z: number;
+  };
+};
+
+type DoorRenderElement = Partial<Door> & {
+  metadata?: Record<string, unknown>;
+};
+
 export const renderProceduralDoor = (
   scene: THREE.Scene,
   px: number,
   pz: number,
-  vectors: any,
+  vectors: WallVectors | null | undefined,
   doorW: number,
   doorH: number,
   door: Door,
-  element: any,
+  element: DoorRenderElement | null | undefined,
   hostWall?: Wall,
   selectedElementId?: string | null,
   color?: string,
 ) => {
-  const doorStyle = String(
-    (element as any)?.metadata?.door_style || "",
-  ).toLowerCase();
+  const doorStyle = String(element?.metadata?.door_style || "").toLowerCase();
   const isDouble =
     door.swingDirection === "double" || doorStyle === "double";
   const isMulti = doorStyle === "multi";
   const isGlass =
-    String((door as any).material || "").toLowerCase() === "glass" ||
+    String(door.material || "").toLowerCase() === "glass" ||
     doorStyle === "glass";
 
-  // Door leaf thickness in world units — proportional to wall thickness
-  const doorLeafDepth = hostWall
-    ? Math.max(0.06, (hostWall.thickness / MM_SCALE) * 0.25)
-    : 0.09;
+  const explicitDoorDepth =
+    typeof door.thickness === "number"
+      ? Math.max(0.03, door.thickness / MM_SCALE)
+      : null;
+
+  // Prefer the BIM door type thickness, then fall back to a host-wall-derived depth.
+  const doorLeafDepth =
+    explicitDoorDepth ??
+    (hostWall ? Math.max(0.06, (hostWall.thickness / MM_SCALE) * 0.25) : 0.09);
 
   const isSelected = selectedElementId === door.id;
   
@@ -39,7 +53,7 @@ export const renderProceduralDoor = (
   const woodColor = color || defaultWoodColors[Math.floor(Math.random() * defaultWoodColors.length)];
   
   const leafMaterial = isGlass 
-    // @ts-ignore - MeshPhysicalMaterial exists in three
+    // @ts-expect-error - MeshPhysicalMaterial exists in the runtime three build.
     ? new THREE.MeshPhysicalMaterial({
         color: "#ffffff",
         metalness: 0.1,
@@ -48,7 +62,7 @@ export const renderProceduralDoor = (
         thickness: 0.02,
         transparent: true,
         opacity: 1,
-        // @ts-ignore
+        // @ts-expect-error - Some installed three typings omit DoubleSide.
         side: THREE.DoubleSide,
         envMapIntensity: 1,
         clearcoat: 1,

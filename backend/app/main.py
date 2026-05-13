@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
-from .api import projects, elements, auth, modeling, drawings, engines, collab, advanced_modules, levels, furniture, models, enterprise_modules, freecad, windows
+from .api import projects, elements, auth, modeling, drawings, engines, collab, advanced_modules, levels, furniture, models, enterprise_modules, freecad, windows, bim
 from .database import engine, Base
 from .config import STORAGE_MODE, LOCAL_STORAGE_PATH
 import os
@@ -66,6 +66,36 @@ async def startup():
                     }
                     if "level_id" not in model_element_columns:
                         sync_conn.execute(text("ALTER TABLE model_elements ADD COLUMN level_id VARCHAR(36)"))
+                    model_element_repairs = {
+                        "category": "VARCHAR(64)",
+                        "type_definition_id": "VARCHAR(36)",
+                        "family_definition_id": "VARCHAR(36)",
+                        "metadata": "JSON",
+                        "relationships": "JSON",
+                        "transform": "JSON",
+                        "visible": "BOOLEAN DEFAULT 1",
+                        "classification": "JSON",
+                    }
+                    for column_name, column_type in model_element_repairs.items():
+                        if column_name not in model_element_columns:
+                            sync_conn.execute(
+                                text(f"ALTER TABLE model_elements ADD COLUMN {column_name} {column_type}")
+                            )
+                if "family_definitions" in table_names:
+                    family_columns = {
+                        column["name"] for column in inspector.get_columns("family_definitions")
+                    }
+                    family_repairs = {
+                        "type_parameters": "JSON",
+                        "instance_defaults": "JSON",
+                        "shared_parameters": "JSON",
+                        "metadata": "JSON",
+                    }
+                    for column_name, column_type in family_repairs.items():
+                        if column_name not in family_columns:
+                            sync_conn.execute(
+                                text(f"ALTER TABLE family_definitions ADD COLUMN {column_name} {column_type}")
+                            )
                 if "furniture_items" in table_names:
                     furniture_columns = {
                         column["name"] for column in inspector.get_columns("furniture_items")
@@ -89,3 +119,4 @@ app.include_router(models.router)
 app.include_router(enterprise_modules.router)
 app.include_router(freecad.router)
 app.include_router(windows.router)
+app.include_router(bim.router)

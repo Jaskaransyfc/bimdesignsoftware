@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..geometry_kernel import geometry_kernel_service
-from ..models import FamilyDefinition, Material, ModelElement, Project
+from ..models import ElementTypeDefinition, FamilyDefinition, Material, ModelElement, Project
 from ..schemas import (
     FamilyDefinitionCreate,
     FamilyDefinitionOut,
@@ -17,6 +17,9 @@ from ..schemas import (
     ModelElementOut,
     ModelElementUpdate,
 )
+from ..services.category_registry import category_registry_service
+from ..services.element_registry import element_registry_service
+from ..services.family_template_service import family_template_service
 
 router = APIRouter(prefix="/api/modeling/projects/{project_id}", tags=["modeling"])
 
@@ -38,6 +41,38 @@ def _hydrate_parametric_columns(payload_data: dict) -> None:
     payload_data["end"] = geometry.get("end") or parameters.get("end")
     payload_data["height"] = parameters.get("height", payload_data.get("height"))
     payload_data["thickness"] = parameters.get("thickness", payload_data.get("thickness"))
+
+
+async def _get_type_definition(
+    project_id: str,
+    type_definition_id: str | None,
+    db: AsyncSession,
+) -> ElementTypeDefinition | None:
+    if not type_definition_id:
+        return None
+    type_definition = await db.get(ElementTypeDefinition, type_definition_id)
+    if not type_definition or type_definition.project_id != project_id:
+        raise HTTPException(status_code=400, detail="Invalid type_definition_id")
+    return type_definition
+
+
+async def _normalize_cb01_payload(
+    project_id: str,
+    payload_data: dict,
+    db: AsyncSession,
+    existing: ModelElement | None = None,
+) -> dict:
+    type_definition = await _get_type_definition(
+        project_id,
+        payload_data.get("type_definition_id") or getattr(existing, "type_definition_id", None),
+        db,
+    )
+    return element_registry_service.normalize_payload(
+        project_id=project_id,
+        payload_data=payload_data,
+        existing=existing,
+        type_definition=type_definition,
+    )
 
 
 async def _sync_hosted_openings(project_id: str, host_wall: ModelElement, db: AsyncSession) -> None:
@@ -185,15 +220,9 @@ async def _bootstrap_default_families(project_id: str, db: AsyncSession) -> None
     )
     if existing.scalar_one_or_none():
         return
-    defaults = [
-        ("Indian Flush Door", "Door", {"type": "Door", "parameters": {"width": 0.9, "height": 2.1, "thickness": 0.12, "frame_material": "Wood", "fire_rating": "1hr"}}),
-        ("Sliding Window", "Window", {"type": "Window", "parameters": {"width": 1.2, "height": 1.2, "thickness": 0.12, "sill_height": 1.0}}),
-        ("RCC Column", "Column", {"type": "Column", "parameters": {"width": 0.4, "height": 3.0, "depth": 0.4, "snap_to_grid": True}}),
-        ("RCC Beam", "Beam", {"type": "Beam", "parameters": {"width": 3.0, "height": 0.45, "depth": 0.3}}),
-        ("RCC Slab", "Slab", {"type": "Slab", "parameters": {"width": 4.0, "height": 0.3, "depth": 4.0}}),
-    ]
-    for family, category, schema in defaults:
-        db.add(FamilyDefinition(project_id=project_id, family=family, category=category, schema=schema))
+    for template in family_template_service.default_templates():
+        normalized = family_template_service.normalize_family_payload(template)
+        db.add(FamilyDefinition(project_id=project_id, **normalized))
     await db.flush()
 
 
@@ -269,7 +298,7 @@ async def create_model_element(
         if not material or material.project_id != project_id:
             raise HTTPException(status_code=400, detail="Invalid material_id")
 
-    payload_data = payload.model_dump()
+    payload_data = await _normalize_cb01_payload(project_id, payload.model_dump(), db)
     kernel_result = geometry_kernel_service.build_element_geometry(
         element_type=str(_enum_to_value(payload_data["type"])),
         element_name=payload_data.get("name"),
@@ -278,6 +307,7 @@ async def create_model_element(
     )
     payload_data["geometry"] = kernel_result.geometry
     payload_data["parameters"] = kernel_result.parameters
+    payload_data = await _normalize_cb01_payload(project_id, payload_data, db)
     _hydrate_parametric_columns(payload_data)
 
     element = ModelElement(project_id=project_id, **payload_data)
@@ -321,6 +351,9 @@ async def update_model_element(
         if not material or material.project_id != project_id:
             raise HTTPException(status_code=400, detail="Invalid material_id")
 
+    if update_data:
+        update_data = await _normalize_cb01_payload(project_id, update_data, db, existing=element)
+
     if "type" in update_data or "name" in update_data or "geometry" in update_data or "parameters" in update_data:
         base_type = str(_enum_to_value(update_data.get("type", element.type)))
         base_name = update_data.get("name", element.name)
@@ -334,6 +367,7 @@ async def update_model_element(
         )
         update_data["geometry"] = kernel_result.geometry
         update_data["parameters"] = kernel_result.parameters
+        update_data = await _normalize_cb01_payload(project_id, update_data, db, existing=element)
         _hydrate_parametric_columns(update_data)
 
     for field, value in update_data.items():
@@ -391,7 +425,8 @@ async def create_family(
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_project_exists(project_id, db)
-    family = FamilyDefinition(project_id=project_id, **payload.model_dump())
+    family_data = family_template_service.normalize_family_payload(payload.model_dump())
+    family = FamilyDefinition(project_id=project_id, **family_data)
     db.add(family)
     await db.commit()
     await db.refresh(family)
@@ -412,8 +447,29 @@ async def update_family(
     family = (await db.execute(query)).scalar_one_or_none()
     if not family:
         raise HTTPException(status_code=404, detail="Family not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    update_data = payload.model_dump(exclude_unset=True)
+    if "metadata" in update_data:
+        update_data["metadata_json"] = update_data.pop("metadata")
+    for field, value in update_data.items():
         setattr(family, field, value)
+    normalized = family_template_service.normalize_family_payload(
+        {
+            "family": family.family,
+            "category": family.category,
+            "schema": family.schema,
+            "preview": family.preview,
+            "type_parameters": family.type_parameters,
+            "instance_defaults": family.instance_defaults,
+            "shared_parameters": family.shared_parameters,
+            "metadata_json": family.metadata_json,
+        }
+    )
+    family.category = normalized["category"]
+    family.schema = normalized["schema"]
+    family.type_parameters = normalized["type_parameters"]
+    family.instance_defaults = normalized["instance_defaults"]
+    family.shared_parameters = normalized["shared_parameters"]
+    family.metadata_json = normalized["metadata_json"]
     await db.commit()
     await db.refresh(family)
     return family
@@ -451,9 +507,10 @@ async def instantiate_family(
     element_type = schema.get("type")
     if not element_type:
         raise HTTPException(status_code=400, detail="Family schema missing type")
-    base_params = (schema.get("parameters") or {}).copy()
-    user_params = payload.parameters or {}
-    merged_params = {**base_params, **user_params, "family": family.family}
+    merged_params = family_template_service.instantiate_parameters(
+        family=family,
+        overrides=payload.parameters or {},
+    )
     kernel_result = geometry_kernel_service.build_element_geometry(
         element_type=element_type,
         element_name=payload.name or family.family,
@@ -463,11 +520,21 @@ async def instantiate_family(
     element_payload = {
         "project_id": project_id,
         "type": element_type,
+        "category": family.category or category_registry_service.classify_element_type(element_type),
         "name": payload.name or family.family,
         "geometry": kernel_result.geometry,
         "parameters": kernel_result.parameters,
         "material_id": payload.material_id,
+        "family_definition_id": family.id,
+        "metadata": {
+            "family": family.family,
+            "cb01": {
+                "source": "family_template",
+                "family_definition_id": family.id,
+            },
+        },
     }
+    element_payload = await _normalize_cb01_payload(project_id, element_payload, db)
     _hydrate_parametric_columns(element_payload)
     element = ModelElement(**element_payload)
     db.add(element)

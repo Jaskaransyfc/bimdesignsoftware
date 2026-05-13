@@ -125,12 +125,14 @@ export interface Door {
   position: Point2D;
   width: number; // mm
   height: number; // mm
+  thickness?: number; // mm
   levelId?: string;
   swingDirection: "left" | "right" | "double";
   wallId?: string; // Reference to parent wall
   orientation: number; // rotation in degrees
   material?: string;
   fireRating?: string;
+  color?: string;
   openingSide?: "inside" | "outside";
   metadata?: Record<string, any>;
 }
@@ -141,11 +143,13 @@ export interface Window {
   position: Point2D;
   width: number; // mm
   height: number; // mm
+  thickness?: number; // mm
   wallId?: string;
   levelId?: string;
   orientation: number;
   material?: string;
   glazing?: string;
+  color?: string;
   metadata?: Record<string, any>;
 }
 

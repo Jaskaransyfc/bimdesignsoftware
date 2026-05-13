@@ -50,6 +50,11 @@ import {
   Fence as RailingIcon,
 } from "lucide-react";
 import { formatImperial } from "@/lib/calculations";
+import {
+  CB01_CATEGORIES,
+  getElementCategory,
+  withBimMetadata,
+} from "@/lib/bimData";
 
 interface CADEditorProps {
   projectId: string;
@@ -65,6 +70,7 @@ interface CADEditorProps {
 type DoorSelectionData = {
   width_mm: number;
   height_mm: number;
+  thickness_mm?: number;
   swingDirection: Door["swingDirection"];
   openingSide?: Door["openingSide"];
   material: string;
@@ -104,6 +110,7 @@ const deriveDoorPreset = (source?: string | null) => {
       openingSide: "inside" as Door["openingSide"],
       material: isGlass ? "Glass" : "Wood",
       doorStyle: "multi",
+      thickness: 120,
     };
   }
 
@@ -115,6 +122,7 @@ const deriveDoorPreset = (source?: string | null) => {
       openingSide: "inside" as Door["openingSide"],
       material: isGlass ? "Glass" : "Wood",
       doorStyle: "double",
+      thickness: 120,
     };
   }
 
@@ -126,6 +134,7 @@ const deriveDoorPreset = (source?: string | null) => {
       openingSide: "inside" as Door["openingSide"],
       material: "Glass",
       doorStyle: "glass",
+      thickness: 80,
     };
   }
 
@@ -136,6 +145,7 @@ const deriveDoorPreset = (source?: string | null) => {
     openingSide: "inside" as Door["openingSide"],
     material: "Wood",
     doorStyle: "single",
+    thickness: 120,
   };
 };
 
@@ -155,6 +165,7 @@ const deriveWindowPreset = (source?: string | null) => {
       windowStyle: "wide",
       glazing: isGlass ? "Clear" : "Standard",
       material: isGlass ? "Glass" : "Aluminum",
+      thickness: 120,
     };
   }
 
@@ -165,6 +176,7 @@ const deriveWindowPreset = (source?: string | null) => {
       windowStyle: "wide",
       glazing: isGlass ? "Clear" : "Standard",
       material: isGlass ? "Glass" : "Aluminum",
+      thickness: 120,
     };
   }
 
@@ -175,6 +187,7 @@ const deriveWindowPreset = (source?: string | null) => {
       windowStyle: "tall",
       glazing: isGlass ? "Clear" : "Standard",
       material: isGlass ? "Glass" : "Aluminum",
+      thickness: 120,
     };
   }
 
@@ -184,6 +197,7 @@ const deriveWindowPreset = (source?: string | null) => {
     windowStyle: "single",
     glazing: isGlass ? "Clear" : "Standard",
     material: isGlass ? "Glass" : "Aluminum",
+    thickness: 120,
   };
 };
 
@@ -399,6 +413,8 @@ type FurnitureApiItem = {
 const optionalNumber = (value: number | string | null | undefined) =>
   value == null ? undefined : Number(value);
 
+const serializeElementsForSync = (items: Element[]) => JSON.stringify(items);
+
 const normalizeFurnitureItem = (item: FurnitureApiItem): FurnitureItem => ({
   id: item.id ?? "",
   projectId: item.projectId ?? item.project_id ?? "",
@@ -445,6 +461,7 @@ export default function CADEditor({
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
   const layerRef = useRef<Konva.Layer>(null);
+  const elementsRef = useRef<Element[]>(initialElements);
   const [isClient, setIsClient] = useState(false);
 
   const [elements, setElements] = useState<Element[]>(initialElements);
@@ -461,6 +478,7 @@ export default function CADEditor({
   const [roomLabelMode, setRoomLabelMode] = useState<"area" | "dimensions">(
     "dimensions",
   );
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   // Levels and Furniture
   const [levels, setLevels] = useState<Level[]>([]);
@@ -502,6 +520,10 @@ export default function CADEditor({
   const [showDoorSelector, setShowDoorSelector] = useState(false);
   const [selectedDoor, setSelectedDoor] = useState<Door | null>(null);
   const [showDoorPropertyPanel, setShowDoorPropertyPanel] = useState(false);
+
+  useEffect(() => {
+    elementsRef.current = elements;
+  }, [elements]);
 
   // Ensure client-side rendering
   useEffect(() => {
@@ -744,11 +766,16 @@ export default function CADEditor({
   }, [selectedLevelId, onActiveLevelChange]);
 
   useEffect(() => {
-    // Avoid parent-child feedback loops: only hydrate from props when local editor is empty.
-    if (elements.length === 0 && initialElements.length > 0) {
-      setElements(initialElements);
+    const normalized = initialElements.map((element) =>
+      withBimMetadata(element),
+    ) as Element[];
+    const incomingSignature = serializeElementsForSync(normalized);
+    const localSignature = serializeElementsForSync(elementsRef.current);
+
+    if (incomingSignature !== localSignature) {
+      setElements(normalized);
     }
-  }, [initialElements, elements.length]);
+  }, [initialElements]);
 
   useEffect(() => {
     onElementsChange?.(elements);
@@ -819,6 +846,10 @@ export default function CADEditor({
           poly.metadata?.fixtureId === fixtureId,
       )
       .map((poly) => poly.id);
+
+  const appendElement = (element: Element) => {
+    setElements((prev) => [...prev, withBimMetadata(element)]);
+  };
 
   const getWallDirection = (wall: Wall) => {
     const dx = wall.endPoint.x - wall.startPoint.x;
@@ -967,6 +998,7 @@ export default function CADEditor({
               position,
               width: doorPreset.width,
               height: doorPreset.height,
+              thickness: doorPreset.thickness,
               swingDirection: doorPreset.swingDirection,
               wallId: hostWall?.id,
               orientation,
@@ -987,6 +1019,7 @@ export default function CADEditor({
               position,
               width: openingWidth,
               height: windowPreset.height,
+              thickness: windowPreset.thickness,
               wallId: hostWall?.id,
               orientation,
               material: windowPreset.material,
@@ -1000,7 +1033,7 @@ export default function CADEditor({
               levelId: selectedLevelId as string,
             };
 
-      setElements((prev) => [...prev, newElement]);
+      appendElement(newElement);
       setIsDrawing(false);
       return;
     } else if (activeTool === "dimension") {
@@ -1020,7 +1053,7 @@ export default function CADEditor({
           rotation: 0,
           color: "#334155",
         };
-        setElements((prev) => [...prev, newText]);
+        appendElement(newText);
       }
     } else if (activeTool === "stairs" && previewPos) {
       const preset = deriveStairPreset(selectedStairModelUrl);
@@ -1037,7 +1070,7 @@ export default function CADEditor({
           stair_model_url: selectedStairModelUrl,
         },
       };
-      setElements((prev) => [...prev, newStair]);
+      appendElement(newStair);
       setIsDrawing(false);
     } else if (activeTool === "floor" && previewPos) {
       const preset = deriveFloorPreset(selectedFloorModelUrl);
@@ -1054,7 +1087,7 @@ export default function CADEditor({
           floor_model_url: selectedFloorModelUrl,
         },
       };
-      setElements((prev) => [...prev, newFloor]);
+      appendElement(newFloor);
       setIsDrawing(false);
     } else if (activeTool === "furniture" && selectedFurnitureType) {
       // Find selected furniture from library
@@ -1127,7 +1160,7 @@ export default function CADEditor({
           roof_style: preset.roofStyle,
         },
       };
-      setElements((prev) => [...prev, newRoof]);
+      appendElement(newRoof);
       setIsDrawing(false);
     } else if (activeTool === "railing" && previewPos) {
       const newRailing: Railing = {
@@ -1142,7 +1175,7 @@ export default function CADEditor({
           railing_style: selectedRailingModelUrl || "modern_metal",
         },
       };
-      setElements((prev) => [...prev, newRailing]);
+      appendElement(newRailing);
       setIsDrawing(false);
     }
   };
@@ -1207,7 +1240,7 @@ export default function CADEditor({
         metadata: {},
       };
 
-      setElements((prev) => [...prev, newWall]);
+      appendElement(newWall);
       setStartPoint(null);
       setEndPoint(null);
       setIsDrawing(false);
@@ -1243,7 +1276,7 @@ export default function CADEditor({
             volume: ((widthMm * depthMm) / 1000000) * 3,
           },
         };
-        setElements((prev) => [...prev, newRoom]);
+        appendElement(newRoom);
       }
       setStartPoint(null);
       setEndPoint(null);
@@ -1265,7 +1298,7 @@ export default function CADEditor({
         orientation: Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical",
       };
 
-      setElements((prev) => [...prev, newDim]);
+      appendElement(newDim);
       setStartPoint(null);
       setEndPoint(null);
       setIsDrawing(false);
@@ -1325,6 +1358,7 @@ export default function CADEditor({
       position: { x: 500, y: 500 },
       width: doorData.width_mm,
       height: doorData.height_mm,
+      thickness: doorData.thickness_mm ?? 120,
       swingDirection: doorData.swingDirection,
       openingSide: doorData.openingSide || "inside",
       material: doorData.material,
@@ -1333,9 +1367,10 @@ export default function CADEditor({
       levelId: selectedLevelId,
     };
 
-    setElements([...elements, newDoor]);
-    setSelectedIds([newDoor.id]);
-    setSelectedDoor(newDoor);
+    const bimDoor = withBimMetadata(newDoor);
+    setElements([...elements, bimDoor]);
+    setSelectedIds([bimDoor.id]);
+    setSelectedDoor(bimDoor);
     setShowDoorPropertyPanel(true);
     setShowDoorSelector(false);
   };
@@ -1492,6 +1527,9 @@ export default function CADEditor({
   };
 
   const levelFilteredElements = elements.filter((element) => {
+    if (categoryFilter !== "all" && getElementCategory(element) !== categoryFilter) {
+      return false;
+    }
     const levelId = (element as any).levelId;
     if (!levelId) return true;
     if (!selectedLevelId) return showAllLevels;
@@ -3113,6 +3151,24 @@ export default function CADEditor({
           </button>
         </div>
 
+        <div className="mx-2 h-6 w-px bg-gray-300" />
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-700">Category:</span>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="min-w-36 px-3 py-1.5 text-sm border border-gray-300 rounded bg-white shadow-sm"
+            title="Filter objects by category"
+          >
+            <option value="all">All Categories</option>
+            {CB01_CATEGORIES.map((category) => (
+              <option key={category.code} value={category.code}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-gray-700">Room Label:</span>
           <button
@@ -3475,6 +3531,7 @@ export default function CADEditor({
                     position: previewPos,
                     width: preset.width,
                     height: preset.height,
+                    thickness: preset.thickness,
                     swingDirection: preset.swingDirection,
                     wallId: previewWall?.id,
                     orientation: 0,
@@ -3497,6 +3554,7 @@ export default function CADEditor({
                   position: previewPos,
                   width: 1200,
                   height: 1200,
+                  thickness: 120,
                   wallId: previewWall?.id,
                   orientation: 0,
                   material: "Glass",

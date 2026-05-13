@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, use, useEffect } from "react";
+import React, { useState, use, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -41,6 +41,19 @@ import {
 } from "@/lib/calculations";
 import { convert2DTo3D, exportModelAsJSON } from "@/lib/geometry3d";
 import { formatImperial } from "@/lib/calculations";
+import {
+  applyBimParameterUpdate,
+  formatBimDisplayValue,
+  getApplicableSharedParameters,
+  getBimParameterEnvelope,
+  getElementCategory,
+  internalMetersToDisplay,
+  lengthToInternalMeters,
+  validateBimElements,
+  withBimMetadata,
+  type BIMParameterValue,
+  type BIMParameterScope,
+} from "@/lib/bimData";
 
 interface ModelingProps {
   params: Promise<{
@@ -54,6 +67,39 @@ type LevelApiItem = Partial<Level> & {
 
 const sortLevels = (items: Level[]) =>
   [...items].sort((a, b) => a.order - b.order);
+
+const BIM_LENGTH_PARAMETER_KEYS = new Set([
+  "width",
+  "height",
+  "depth",
+  "thickness",
+  "length",
+  "offset",
+  "sill_height",
+  "base_elevation",
+  "top_offset",
+]);
+
+const serializeElementState = (element: Element | null) =>
+  element ? JSON.stringify(element) : "";
+
+const serializeElementsState = (items: Element[]) => JSON.stringify(items);
+
+const normalizeBimElements = (items: Element[]) =>
+  items.map((element) => withBimMetadata(element));
+
+const HIDDEN_METADATA_KEYS = new Set(["schema_version", "parameters"]);
+
+const getDisplayMetadata = (metadata?: Record<string, unknown>) => {
+  const source =
+    metadata?.cb01 && typeof metadata.cb01 === "object" && !Array.isArray(metadata.cb01)
+      ? (metadata.cb01 as Record<string, unknown>)
+      : metadata || {};
+
+  return Object.fromEntries(
+    Object.entries(source).filter(([key]) => !HIDDEN_METADATA_KEYS.has(key)),
+  );
+};
 
 const normalizeLevel = (
   level: LevelApiItem,
@@ -148,11 +194,28 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   const [levels, setLevels] = useState<Level[]>([]);
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
   const [isAddingLevel, setIsAddingLevel] = useState(false);
+  const [displayLengthUnit, setDisplayLengthUnit] = useState<"mm" | "cm" | "m" | "ft" | "in">("mm");
+
+  const handleEditorElementsChange = useCallback((nextElements: Element[]) => {
+    const normalizedElements = normalizeBimElements(nextElements);
+    const nextSignature = serializeElementsState(normalizedElements);
+    setElements((current) =>
+      serializeElementsState(current) === nextSignature ? current : normalizedElements,
+    );
+  }, []);
+
+  const handleEditorSelectionChange = useCallback((element: Element | null) => {
+    const normalizedElement = element ? withBimMetadata(element) : null;
+    const nextSignature = serializeElementState(normalizedElement);
+    setSelectedElement((current) =>
+      serializeElementState(current) === nextSignature ? current : normalizedElement,
+    );
+  }, []);
 
   // Update a property on the selected element and propagate to elements array
-  const handlePropertyUpdate = (field: string, value: any) => {
+  const handlePropertyUpdate = (field: string, value: unknown) => {
     if (!selectedElement) return;
-    const updatedElement = { ...selectedElement, [field]: value } as Element;
+    const updatedElement = withBimMetadata({ ...selectedElement, [field]: value } as Element);
     setSelectedElement(updatedElement);
     setElements((prev) =>
       prev.map((el) => (el.id === selectedElement.id ? updatedElement : el)),
@@ -160,17 +223,58 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   };
 
   // Update nested metadata fields
-  const handleMetadataUpdate = (field: string, value: any) => {
+  const handleMetadataUpdate = (field: string, value: unknown) => {
     if (!selectedElement) return;
-    const meta = (selectedElement as any).metadata || {};
-    const updatedElement = {
+    const meta =
+      (selectedElement as Element & { metadata?: Record<string, unknown> }).metadata || {};
+    const updatedElement = withBimMetadata({
       ...selectedElement,
       metadata: { ...meta, [field]: value },
-    } as Element;
+    } as Element);
     setSelectedElement(updatedElement);
     setElements((prev) =>
       prev.map((el) => (el.id === selectedElement.id ? updatedElement : el)),
     );
+  };
+
+  const handleBimParameterUpdate = (
+    scope: BIMParameterScope,
+    key: string,
+    value: string,
+  ) => {
+    if (!selectedElement) return;
+    const updatedElement = applyBimParameterUpdate(
+      selectedElement as Element & Record<string, unknown>,
+      scope,
+      key,
+      value,
+    ) as Element;
+    setSelectedElement(updatedElement);
+    setElements((prev) =>
+      prev.map((el) => (el.id === selectedElement.id ? updatedElement : el)),
+    );
+  };
+
+  const formatBimInputValue = (key: string, value: BIMParameterValue) => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "number" && BIM_LENGTH_PARAMETER_KEYS.has(key)) {
+      const converted = internalMetersToDisplay(value, displayLengthUnit);
+      const precision =
+        displayLengthUnit === "m" ? 3 : displayLengthUnit === "mm" ? 0 : 2;
+      return String(Number(converted.toFixed(precision)));
+    }
+    return String(value);
+  };
+
+  const normalizeBimInputValue = (
+    key: string,
+    currentValue: BIMParameterValue,
+    inputValue: string,
+  ) => {
+    if (typeof currentValue === "number" && BIM_LENGTH_PARAMETER_KEYS.has(key)) {
+      return String(lengthToInternalMeters(Number(inputValue || 0), displayLengthUnit));
+    }
+    return inputValue;
   };
 
   const handleApplyChanges = () => {
@@ -192,7 +296,7 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
         if (response.ok) {
           const data = await response.json();
           if (data.elements && data.elements.length > 0) {
-            setElements(data.elements);
+            setElements(data.elements.map((element: Element) => withBimMetadata(element)));
           }
         }
       } catch (error) {
@@ -283,7 +387,8 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   };
 
   const handleSaveDrawing = async (updatedElements: Element[]) => {
-    setElements(updatedElements);
+    const normalizedElements = updatedElements.map((element) => withBimMetadata(element));
+    setElements(normalizedElements);
     setIsSaving(true);
 
     try {
@@ -292,7 +397,7 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId,
-          elements: updatedElements,
+          elements: normalizedElements,
           timestamp: new Date().toISOString(),
         }),
       });
@@ -336,6 +441,47 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
 
   const stats = calculateDrawingStats(elements);
   const bom = generateProjectBOM(elements);
+  const validationIssues = validateBimElements(elements as Array<Element & Record<string, unknown>>);
+  const selectedBimEnvelope = selectedElement
+    ? getBimParameterEnvelope(selectedElement as Element & Record<string, unknown>)
+    : null;
+  const selectedCategory = selectedElement
+    ? getElementCategory(selectedElement as Element & Record<string, unknown>)
+    : null;
+  const selectedSharedParameters = selectedCategory
+    ? getApplicableSharedParameters(selectedCategory)
+    : [];
+  const selectedElementData = selectedElement as
+    | (Element & {
+        metadata?: Record<string, unknown>;
+        parameters?: Record<string, unknown>;
+        relationships?: Record<string, unknown>;
+        wallId?: string;
+        levelId?: string;
+      })
+    | null;
+  const selectedRelationships = selectedElementData
+    ? [
+        selectedElementData.levelId
+          ? { label: "Level", value: selectedElementData.levelId }
+          : null,
+        selectedElementData.wallId
+          ? { label: "Hosted by Wall", value: selectedElementData.wallId }
+          : null,
+        selectedBimEnvelope?.instance_parameters.host_wall_id
+          ? {
+              label: "Host Relationship",
+              value: String(selectedBimEnvelope.instance_parameters.host_wall_id),
+            }
+          : null,
+        selectedElementData.relationships
+          ? {
+              label: "Stored Relationships",
+              value: JSON.stringify(selectedElementData.relationships),
+            }
+          : null,
+      ].filter((item): item is { label: string; value: string } => Boolean(item))
+    : [];
   const activeLevelName =
     levels.find((level) => level.id === activeLevelId)?.name || "No level selected";
 
@@ -450,8 +596,8 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
             <CADEditor
               projectId={projectId}
               onSave={handleSaveDrawing}
-              onElementsChange={setElements}
-              onSelectionChange={(el) => setSelectedElement(el)}
+              onElementsChange={handleEditorElementsChange}
+              onSelectionChange={handleEditorSelectionChange}
               initialElements={elements}
               levels={levels}
               activeLevelId={activeLevelId}
@@ -526,6 +672,133 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                       PARAMETERS
                     </div>
 
+                    {selectedBimEnvelope && (
+                      <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-[10px] uppercase tracking-[0.16em] text-blue-300 font-bold">
+                              BIM Data
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              {selectedBimEnvelope.element_type} · {selectedBimEnvelope.category}
+                            </div>
+                          </div>
+                          <select
+                            value={displayLengthUnit}
+                            onChange={(event) =>
+                              setDisplayLengthUnit(event.target.value as typeof displayLengthUnit)
+                            }
+                            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[10px] text-white"
+                            title="Display unit"
+                          >
+                            <option value="mm">mm</option>
+                            <option value="cm">cm</option>
+                            <option value="m">m</option>
+                            <option value="ft">ft</option>
+                            <option value="in">in</option>
+                          </select>
+                        </div>
+
+                        {([
+                          ["type", selectedBimEnvelope.type_parameters],
+                          ["instance", selectedBimEnvelope.instance_parameters],
+                          ["shared", selectedBimEnvelope.shared_parameters],
+                        ] as Array<[BIMParameterScope, Record<string, BIMParameterValue>]>).map(
+                          ([scope, params]) => (
+                            <div key={scope} className="space-y-2">
+                              <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">
+                                {scope} parameters
+                              </div>
+                              {Object.entries(params).length === 0 ? (
+                                <div className="text-[10px] text-slate-500">No parameters</div>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  {Object.entries(params).map(([key, value]) => (
+                                    <label
+                                      key={`${scope}-${key}`}
+                                      className="grid grid-cols-[1fr_126px] items-center gap-2 text-xs text-slate-300"
+                                    >
+                                      <span className="truncate" title={key}>
+                                        {key.replaceAll("_", " ")}
+                                      </span>
+                                      <input
+                                        value={formatBimInputValue(key, value)}
+                                        onChange={(event) =>
+                                          handleBimParameterUpdate(
+                                            scope,
+                                            key,
+                                            normalizeBimInputValue(
+                                              key,
+                                              value,
+                                              event.target.value,
+                                            ),
+                                          )
+                                        }
+                                        placeholder={formatBimDisplayValue(
+                                          value,
+                                          key,
+                                          displayLengthUnit,
+                                        )}
+                                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono"
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ),
+                        )}
+
+                        {selectedSharedParameters.length > 0 && (
+                          <div className="pt-2 border-t border-blue-500/10 text-[10px] text-slate-400">
+                            Shared parameter set:{" "}
+                            {selectedSharedParameters.map((param) => param.name).join(", ")}
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-blue-500/10">
+                          <div className="rounded bg-slate-950/70 border border-slate-800 p-2">
+                            <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-1">
+                              Relationships
+                            </div>
+                            {selectedRelationships.length === 0 ? (
+                              <div className="text-[10px] text-slate-500">
+                                No host or level relationship
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                {selectedRelationships.map((relationship) => (
+                                  <div
+                                    key={`${relationship.label}-${relationship.value}`}
+                                    className="text-[10px] text-slate-300"
+                                  >
+                                    <span className="text-slate-500">
+                                      {relationship.label}:
+                                    </span>{" "}
+                                    <span className="font-mono break-all">
+                                      {relationship.value}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="rounded bg-slate-950/70 border border-slate-800 p-2">
+                            <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-1">
+                              Metadata
+                            </div>
+                            <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words text-[10px] text-slate-300">
+                              {JSON.stringify(
+                                getDisplayMetadata(selectedElementData?.metadata),
+                                null,
+                                2,
+                              )}
+                            </pre>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* ── DOOR PROPERTIES ── */}
                     {selectedElement.type === "door" && (() => {
                       const door = selectedElement as Door;
@@ -598,6 +871,39 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                               <span>1500mm</span>
                               <span className="text-blue-400">{formatImperial(door.height)}</span>
                               <span>3500mm</span>
+                            </div>
+                          </div>
+
+                          {/* Thickness */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Thickness</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={door.thickness ?? 120}
+                                  min={30}
+                                  max={300}
+                                  step={5}
+                                  onChange={(e) => handlePropertyUpdate("thickness", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range"
+                              min={30}
+                              max={300}
+                              step={5}
+                              value={door.thickness ?? 120}
+                              onChange={(e) => handlePropertyUpdate("thickness", Number(e.target.value))}
+                              className="w-full h-1 accent-blue-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                              <span>30mm</span>
+                              <span className="text-blue-400">{formatImperial(door.thickness ?? 120)}</span>
+                              <span>300mm</span>
                             </div>
                           </div>
 
@@ -739,6 +1045,39 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                               <span>300mm</span>
                               <span className="text-cyan-400">{formatImperial(win.height)}</span>
                               <span>3000mm</span>
+                            </div>
+                          </div>
+
+                          {/* Thickness */}
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-slate-400 font-medium">Thickness</label>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  value={win.thickness ?? 120}
+                                  min={30}
+                                  max={300}
+                                  step={5}
+                                  onChange={(e) => handlePropertyUpdate("thickness", Number(e.target.value))}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white text-right font-mono focus:border-blue-500 focus:outline-none"
+                                />
+                                <span className="text-[10px] text-slate-500 font-mono w-6">mm</span>
+                              </div>
+                            </div>
+                            <input
+                              type="range"
+                              min={30}
+                              max={300}
+                              step={5}
+                              value={win.thickness ?? 120}
+                              onChange={(e) => handlePropertyUpdate("thickness", Number(e.target.value))}
+                              className="w-full h-1 accent-cyan-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                              <span>30mm</span>
+                              <span className="text-cyan-400">{formatImperial(win.thickness ?? 120)}</span>
+                              <span>300mm</span>
                             </div>
                           </div>
 
@@ -1226,6 +1565,42 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                   </div>
                 </div>
               )}
+
+              <div className="mb-6 bg-slate-900 rounded-lg border border-slate-700 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-bold text-white">Model Diagnostics</h3>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-1 rounded ${
+                      validationIssues.some((issue) => issue.severity === "error")
+                        ? "bg-red-500/10 text-red-300"
+                        : validationIssues.length
+                          ? "bg-amber-500/10 text-amber-300"
+                          : "bg-emerald-500/10 text-emerald-300"
+                    }`}
+                  >
+                    {validationIssues.length} issues
+                  </span>
+                </div>
+                <div className="max-h-36 overflow-auto space-y-2">
+                  {validationIssues.length === 0 ? (
+                    <div className="text-xs text-slate-400">
+                      Object metadata, levels, shared parameters, and templates look consistent.
+                    </div>
+                  ) : (
+                    validationIssues.slice(0, 8).map((issue, index) => (
+                      <div
+                        key={`${issue.code}-${issue.element_id}-${index}`}
+                        className="rounded border border-slate-800 bg-slate-950 px-3 py-2"
+                      >
+                        <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                          {issue.severity} · {issue.code}
+                        </div>
+                        <div className="text-xs text-slate-300">{issue.message}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
 
               {/* Tabs */}
               <div className="flex gap-2 mb-6 bg-slate-900 p-1 rounded-lg">

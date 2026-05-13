@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -99,6 +99,9 @@ class MaterialOut(MaterialBase):
 
 class ModelElementBase(BaseModel):
     type: ModelElementType
+    category: Optional[str] = None
+    type_definition_id: Optional[str] = None
+    family_definition_id: Optional[str] = None
     name: Optional[str] = None
     start: Optional[List[float]] = None
     end: Optional[List[float]] = None
@@ -107,6 +110,11 @@ class ModelElementBase(BaseModel):
     geometry: Optional[Dict[str, Any]] = None
     material_id: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    relationships: Optional[Dict[str, Any]] = None
+    transform: Optional[Dict[str, Any]] = None
+    visible: Optional[bool] = True
+    classification: Optional[Dict[str, Any]] = None
 
 
 class ModelElementCreate(ModelElementBase):
@@ -115,6 +123,9 @@ class ModelElementCreate(ModelElementBase):
 
 class ModelElementUpdate(BaseModel):
     type: Optional[ModelElementType] = None
+    category: Optional[str] = None
+    type_definition_id: Optional[str] = None
+    family_definition_id: Optional[str] = None
     name: Optional[str] = None
     start: Optional[List[float]] = None
     end: Optional[List[float]] = None
@@ -123,14 +134,23 @@ class ModelElementUpdate(BaseModel):
     geometry: Optional[Dict[str, Any]] = None
     material_id: Optional[str] = None
     parameters: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    relationships: Optional[Dict[str, Any]] = None
+    transform: Optional[Dict[str, Any]] = None
+    visible: Optional[bool] = None
+    classification: Optional[Dict[str, Any]] = None
 
 
 class ModelElementOut(ModelElementBase):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
     id: str
     project_id: str
-
-    class Config:
-        from_attributes = True
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        validation_alias="metadata_json",
+        serialization_alias="metadata",
+    )
 
 
 class FamilyDefinitionBase(BaseModel):
@@ -138,6 +158,10 @@ class FamilyDefinitionBase(BaseModel):
     category: str
     schema: Dict[str, Any]
     preview: Optional[Dict[str, Any]] = None
+    type_parameters: Optional[Dict[str, Any]] = None
+    instance_defaults: Optional[Dict[str, Any]] = None
+    shared_parameters: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class FamilyDefinitionCreate(FamilyDefinitionBase):
@@ -149,14 +173,22 @@ class FamilyDefinitionUpdate(BaseModel):
     category: Optional[str] = None
     schema: Optional[Dict[str, Any]] = None
     preview: Optional[Dict[str, Any]] = None
+    type_parameters: Optional[Dict[str, Any]] = None
+    instance_defaults: Optional[Dict[str, Any]] = None
+    shared_parameters: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class FamilyDefinitionOut(FamilyDefinitionBase):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
     id: str
     project_id: str
-
-    class Config:
-        from_attributes = True
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        validation_alias="metadata_json",
+        serialization_alias="metadata",
+    )
 
 
 class FamilyInstantiateRequest(BaseModel):
