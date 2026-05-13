@@ -21,8 +21,9 @@ import {
 import CADEditor from "@/components/CADEditor";
 import Model3DPreview from "@/components/Model3DPreview";
 import FurnitureModelImport from "@/components/FurnitureModelImport";
-import { Element, Door, Window, Wall, Stair, Floor } from "@/types/modeling";
-import { generateProjectBOM, calculateDrawingStats } from "@/lib/calculations";
+import LevelPanel from "@/components/LevelPanel";
+import { Element, Door, Window, Wall, Stair, Floor, Level } from "@/types/modeling";
+import { generateProjectBOM, calculateDrawingStats, metersToMM } from "@/lib/calculations";
 import { convert2DTo3D, exportModelAsJSON } from "@/lib/geometry3d";
 import { formatImperial } from "@/lib/calculations";
 
@@ -104,6 +105,8 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   const [modelsRefresh, setModelsRefresh] = useState(0);
   const [selectedElement, setSelectedElement] = useState<Element | null>(null);
   const [applyFlash, setApplyFlash] = useState(false);
+  const [levels, setLevels] = useState<Level[]>([]);
+  const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
 
   // Update a property on the selected element and propagate to elements array
   const handlePropertyUpdate = (field: string, value: any) => {
@@ -161,6 +164,44 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
     loadDrawing();
   }, [projectId]);
 
+  useEffect(() => {
+    const loadLevels = async () => {
+      try {
+        let response = await fetch(`/api/projects/${projectId}/levels`);
+        let data = response.ok ? await response.json() : [];
+        if (!Array.isArray(data) || data.length === 0) {
+          const initResponse = await fetch(`/api/projects/${projectId}/levels/init`, {
+            method: "POST",
+          });
+          data = initResponse.ok ? await initResponse.json() : [];
+        }
+        if (!Array.isArray(data)) data = [];
+        const normalized = data
+          .map((level: any, index: number) => ({
+            ...level,
+            projectId: level.projectId ?? level.project_id ?? projectId,
+            elevation_mm: level.elevation_mm ?? metersToMM(level.elevation_m ?? 0),
+            order: Number(level.order ?? index),
+          }))
+          .sort((a: Level, b: Level) => a.order - b.order);
+        setLevels(normalized);
+        const storageKey = `bim_active_level_${projectId}`;
+        const fromStorage = localStorage.getItem(storageKey);
+        const candidate = normalized.find((level: Level) => level.id === fromStorage)?.id;
+        const nextActive = candidate || normalized[0]?.id || null;
+        setActiveLevelId(nextActive);
+      } catch (error) {
+        console.error("Failed to load levels", error);
+      }
+    };
+    loadLevels();
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!activeLevelId) return;
+    localStorage.setItem(`bim_active_level_${projectId}`, activeLevelId);
+  }, [projectId, activeLevelId]);
+
   const handleSaveDrawing = async (updatedElements: Element[]) => {
     setElements(updatedElements);
     setIsSaving(true);
@@ -215,6 +256,8 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
 
   const stats = calculateDrawingStats(elements);
   const bom = generateProjectBOM(elements);
+  const activeLevelName =
+    levels.find((level) => level.id === activeLevelId)?.name || "No level selected";
 
   return (
     <main className="h-screen bg-slate-900 flex flex-col">
@@ -252,6 +295,18 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
               <Eye className="w-4 h-4" /> 3D
             </button>
           </div>
+          <select
+            value={activeLevelId || ""}
+            onChange={(event) => setActiveLevelId(event.target.value || null)}
+            className="px-3 py-2 rounded-lg bg-slate-800 text-slate-100 border border-slate-700 text-sm"
+          >
+            <option value="">Editing: {activeLevelName}</option>
+            {levels.map((level) => (
+              <option key={level.id} value={level.id}>
+                Editing: {level.name}
+              </option>
+            ))}
+          </select>
 
           <button
             onClick={() => setShowProperties(!showProperties)}
@@ -308,6 +363,9 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
               onElementsChange={setElements}
               onSelectionChange={(el) => setSelectedElement(el)}
               initialElements={elements}
+              levels={levels}
+              activeLevelId={activeLevelId}
+              onActiveLevelChange={setActiveLevelId}
             />
           ) : (
             <Model3DPreview
@@ -315,6 +373,8 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
               elements={elements}
               projectId={projectId}
               selectedElementId={selectedElement?.id}
+              levels={levels}
+              activeLevelId={activeLevelId}
             />
           )}
         </div>
@@ -1271,6 +1331,14 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                   )}
                 </div>
               )}
+
+              <LevelPanel
+                projectId={projectId}
+                levels={levels}
+                activeLevelId={activeLevelId}
+                onLevelSelect={setActiveLevelId}
+                onLevelsChange={setLevels}
+              />
 
               {/* Cost Summary */}
               {bom.materials.length > 0 && (

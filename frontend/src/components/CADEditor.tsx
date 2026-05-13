@@ -57,6 +57,9 @@ interface CADEditorProps {
   onElementsChange?: (elements: Element[]) => void;
   onSelectionChange?: (element: Element | null) => void;
   initialElements?: Element[];
+  levels?: Level[];
+  activeLevelId?: string | null;
+  onActiveLevelChange?: (levelId: string | null) => void;
 }
 
 type DoorSelectionData = {
@@ -379,6 +382,9 @@ export default function CADEditor({
   onElementsChange,
   onSelectionChange,
   initialElements = [],
+  levels: propLevels = [],
+  activeLevelId: propActiveLevelId = null,
+  onActiveLevelChange,
 }: CADEditorProps) {
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -403,6 +409,7 @@ export default function CADEditor({
   // Levels and Furniture
   const [levels, setLevels] = useState<Level[]>([]);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
+  const [showAllLevels, setShowAllLevels] = useState(false);
   const [furnitureItems, setFurnitureItems] = useState<FurnitureItem[]>([]);
   const [furnitureLibrary, setFurnitureLibrary] = useState<any[]>([]);
   const [doorLibrary, setDoorLibrary] = useState<any[]>([]);
@@ -501,6 +508,12 @@ export default function CADEditor({
 
   // Load levels and furniture
   useEffect(() => {
+    const hasExternalLevels = propLevels.length > 0;
+    if (hasExternalLevels) {
+      setLevels(propLevels);
+      setSelectedLevelId(propActiveLevelId || propLevels[0]?.id || null);
+    }
+
     const loadLevels = async () => {
       try {
         setIsLoadingLevels(true);
@@ -582,10 +595,12 @@ export default function CADEditor({
       }
     };
 
-    loadLevels();
+    if (!hasExternalLevels) {
+      loadLevels();
+    }
     loadFurniture();
     loadFurnitureLibrary();
-  }, [projectId]);
+  }, [projectId, propLevels, propActiveLevelId]);
 
   useEffect(() => {
     const loadDoorLibrary = async () => {
@@ -647,10 +662,23 @@ export default function CADEditor({
   }, []);
 
   useEffect(() => {
+    if (propLevels.length > 0) return;
     if (!selectedLevelId && levels.length > 0) {
       setSelectedLevelId(levels[0].id);
     }
-  }, [levels, selectedLevelId]);
+  }, [levels, selectedLevelId, propLevels.length]);
+
+  useEffect(() => {
+    if (propLevels.length > 0) setLevels(propLevels);
+  }, [propLevels]);
+
+  useEffect(() => {
+    if (propLevels.length > 0) setSelectedLevelId(propActiveLevelId);
+  }, [propLevels.length, propActiveLevelId]);
+
+  useEffect(() => {
+    onActiveLevelChange?.(selectedLevelId);
+  }, [selectedLevelId, onActiveLevelChange]);
 
   useEffect(() => {
     // Avoid parent-child feedback loops: only hydrate from props when local editor is empty.
@@ -662,6 +690,20 @@ export default function CADEditor({
   useEffect(() => {
     onElementsChange?.(elements);
   }, [elements, onElementsChange]);
+
+  useEffect(() => {
+    if (!levels.length) return;
+    const fallbackId = levels[0].id;
+    setElements((prev) =>
+      prev.map((element) => {
+        if (element.type === "dimension" || element.type === "text" || element.type === "polyline") {
+          return element;
+        }
+        if ((element as any).levelId) return element;
+        return { ...element, levelId: fallbackId } as Element;
+      }),
+    );
+  }, [levels]);
 
   if (!isClient) return <div className="w-full h-full bg-slate-700" />;
 
@@ -804,6 +846,19 @@ export default function CADEditor({
     }
 
     const pos = snapToGrid(getMousePos(e));
+    const requiresLevel =
+      activeTool === "wall" ||
+      activeTool === "door" ||
+      activeTool === "window" ||
+      activeTool === "stairs" ||
+      activeTool === "floor" ||
+      activeTool === "room" ||
+      activeTool === "roof" ||
+      activeTool === "railing";
+    if (requiresLevel && !selectedLevelId) {
+      alert("Please select a level before drawing.");
+      return;
+    }
 
     if (activeTool === "wall") {
       if (!isDrawing) {
@@ -855,6 +910,7 @@ export default function CADEditor({
                   }
                 : { door_style: doorPreset.doorStyle },
               fireRating: "-",
+              levelId: selectedLevelId as string,
             }
           : {
               id: `win_${Date.now()}`,
@@ -872,6 +928,7 @@ export default function CADEditor({
                     window_style: windowPreset.windowStyle,
                   }
                 : { window_style: windowPreset.windowStyle },
+              levelId: selectedLevelId as string,
             };
 
       setElements((prev) => [...prev, newElement]);
@@ -905,6 +962,7 @@ export default function CADEditor({
         width: 2050, // default or from preset
         height: 2450,
         rotation: 0,
+        levelId: selectedLevelId as string,
         metadata: {
           stair_style: preset.type,
           stair_model_url: selectedStairModelUrl,
@@ -920,6 +978,7 @@ export default function CADEditor({
         position: previewPos,
         width: preset.width,
         depth: preset.depth,
+        levelId: selectedLevelId as string,
         rotation: 0,
         metadata: {
           floor_style: preset.type,
@@ -993,6 +1052,7 @@ export default function CADEditor({
         position: previewPos,
         width: preset.width,
         depth: preset.depth,
+        levelId: selectedLevelId as string,
         rotation: 0,
         metadata: {
           roof_style: preset.roofStyle,
@@ -1007,6 +1067,7 @@ export default function CADEditor({
         position: previewPos,
         length: 4000,
         height: 1100,
+        levelId: selectedLevelId as string,
         rotation: 0,
         metadata: {
           railing_style: selectedRailingModelUrl || "modern_metal",
@@ -1073,6 +1134,7 @@ export default function CADEditor({
         material: "Red Brick",
         fireRating: "-",
         color: "#d4a574",
+        levelId: selectedLevelId as string,
         metadata: {},
       };
 
@@ -1105,6 +1167,7 @@ export default function CADEditor({
             { x: left, y: bottom },
           ],
           height: 3000,
+          levelId: selectedLevelId as string,
           properties: {
             area: (widthMm * depthMm) / 1000000,
             perimeter: ((widthMm + depthMm) * 2) / 1000,
@@ -1183,6 +1246,10 @@ export default function CADEditor({
   // ─────────────────────────────────────────────────────────
 
   const handleAddDoorFromSelector = (doorData: DoorSelectionData) => {
+    if (!selectedLevelId) {
+      alert("Please select a level before drawing.");
+      return;
+    }
     const newDoor: Door = {
       id: `door-${Date.now()}`,
       type: "door",
@@ -1194,7 +1261,7 @@ export default function CADEditor({
       material: doorData.material,
       fireRating: doorData.fireRating,
       orientation: 0,
-      levelId: selectedLevelId || undefined,
+      levelId: selectedLevelId,
     };
 
     setElements([...elements, newDoor]);
@@ -1354,6 +1421,13 @@ export default function CADEditor({
         return null;
     }
   };
+
+  const levelFilteredElements = elements.filter((element) => {
+    const levelId = (element as any).levelId;
+    if (!levelId) return true;
+    if (!selectedLevelId) return showAllLevels;
+    return levelId === selectedLevelId || showAllLevels;
+  });
 
   const renderPolyline = (poly: any) => {
     const circuitId = poly.metadata?.circuitId || null;
@@ -2946,7 +3020,11 @@ export default function CADEditor({
           <span className="text-xs font-medium text-gray-700">Level:</span>
           <select
             value={selectedLevelId || ""}
-            onChange={(e) => setSelectedLevelId(e.target.value || null)}
+            onChange={(e) => {
+              const value = e.target.value || null;
+              setSelectedLevelId(value);
+              onActiveLevelChange?.(value);
+            }}
             className="min-w-36 px-3 py-1.5 text-sm border border-gray-300 rounded bg-white shadow-sm"
             disabled={isLoadingLevels}
           >
@@ -2957,6 +3035,13 @@ export default function CADEditor({
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={() => setShowAllLevels((prev) => !prev)}
+            className="px-2 py-1 text-xs border border-gray-300 rounded bg-white"
+          >
+            {showAllLevels ? "Hide ghost" : "Show all levels"}
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -3270,7 +3355,18 @@ export default function CADEditor({
             ))}
 
             {/* Elements */}
-            {elements.map(renderElement)}
+            {levelFilteredElements.map((element) => {
+              const isGhost =
+                showAllLevels &&
+                selectedLevelId &&
+                (element as any).levelId &&
+                (element as any).levelId !== selectedLevelId;
+              return (
+                <Group key={element.id} opacity={isGhost ? 0.5 : 1} listening={!isGhost}>
+                  {renderElement(element)}
+                </Group>
+              );
+            })}
 
             {/* Furniture Items */}
             {furnitureItems
@@ -3422,6 +3518,19 @@ export default function CADEditor({
 
       {/* Status Bar */}
       <div className="bg-gray-200 border-t border-gray-300 px-4 py-2 text-sm text-gray-700">
+        <span>
+          Level:{" "}
+          {levels.find((level) => level.id === selectedLevelId)?.name || "None"} | Elevation:{" "}
+          {levels.find((level) => level.id === selectedLevelId)?.elevation_mm ?? 0} mm |{" "}
+          Elements:{" "}
+          {
+            elements.filter(
+              (element) =>
+                !(element as any).levelId || (element as any).levelId === selectedLevelId,
+            ).length
+          }{" "}
+          |{" "}
+        </span>
         <span>Elements: {elements.length} | </span>
         <span>
           Walls: {elements.filter((e) => e.type === "wall").length} |{" "}

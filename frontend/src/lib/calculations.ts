@@ -17,6 +17,7 @@ import {
   ProjectBOM,
   WallSchedule,
   MaterialUsage,
+  MM_SCALE,
 } from "@/types/modeling";
 
 // ─────────────────────────────────────────────────────────
@@ -74,6 +75,19 @@ export const formatImperial = (mm: number): string => {
   if (inches === 0) return `${feet}'`;
   return `${feet}' ${inches}''`;
 };
+
+export const mmToWorldY = (mm: number): number => mm / MM_SCALE;
+
+export const mmToFeetInches = (mm: number): string => {
+  const totalInches = mm / 25.4;
+  const feet = Math.floor(totalInches / 12);
+  const inches = Math.round(totalInches % 12);
+  return `${feet}' ${inches}"`;
+};
+
+export const metersToMM = (m: number): number => Math.round(m * 1000);
+
+export const mmToMeters = (mm: number): number => mm / 1000;
 
 export const calculatePolygonArea = (vertices: Point2D[]): number => {
   if (vertices.length < 3) return 0;

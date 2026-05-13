@@ -30,6 +30,7 @@ export interface Stair {
   position: Point2D;
   width: number;
   height: number;
+  levelId?: string;
   rotation?: number; // degrees
   color?: string;
   metadata?: any;
@@ -41,6 +42,7 @@ export interface Floor {
   position: Point2D;
   width: number;
   depth: number;
+  levelId?: string;
   rotation?: number;
   color?: string;
   metadata?: any;
@@ -52,6 +54,7 @@ export interface Railing {
   position: Point2D;
   length: number;
   height: number;
+  levelId?: string;
   rotation?: number;
   color?: string;
   metadata?: any;
@@ -63,6 +66,7 @@ export interface Roof {
   position: Point2D;
   width: number;
   depth: number;
+  levelId?: string;
   rotation?: number;
   color?: string;
   metadata?: any;
@@ -190,8 +194,19 @@ export interface Polyline {
   id: string;
   type: "polyline";
   points: number[]; // flat [x1,y1,x2,y2,...] in canvas units
+  levelId?: string;
   stroke?: string;
   strokeWidth?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface ShapeElement {
+  id: string;
+  type: "shape";
+  levelId: string;
+  points: number[];
+  stroke?: string;
+  fill?: string;
   metadata?: Record<string, any>;
 }
 
@@ -217,6 +232,7 @@ export type Element =
   | Roof
   | ElectricalFixture
   | Polyline
+  | ShapeElement
   | DrawingElement;
 
 // ─────────────────────────────────────────────────────────
@@ -422,9 +438,18 @@ export interface Level {
   projectId: string;
   name: string;
   elevation_m: number;
-  floor_height_m: number;
+  elevation_mm: number;
   order: number;
+  color?: string;
+  isActive?: boolean;
 }
+
+export const MM_SCALE = 500;
+export const PLAN_SCALE = 10;
+export const MM_TO_CANVAS = 50;
+export const FT_TO_MM = 304.8;
+export const DEFAULT_FLOOR_HEIGHT_MM = 3660;
+export const SLAB_THICKNESS_MM = 330;
 
 export interface FurnitureItem {
   id: string;
