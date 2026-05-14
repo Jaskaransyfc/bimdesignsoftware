@@ -30,6 +30,7 @@ import {
   Roof,
   ElectricalFixture,
   Polyline,
+  RoomValidationIssue,
 } from "@/types/modeling";
 import {
   Plus,
@@ -48,6 +49,7 @@ import {
   Grid as FloorIcon,
   Triangle as RoofIcon,
   Fence as RailingIcon,
+  ScanSearch,
 } from "lucide-react";
 import { formatImperial } from "@/lib/calculations";
 import {
@@ -65,6 +67,9 @@ interface CADEditorProps {
   levels?: Level[];
   activeLevelId?: string | null;
   onActiveLevelChange?: (levelId: string | null) => void;
+  roomIssues?: RoomValidationIssue[];
+  onDetectRooms?: () => void;
+  roomDetectionStatus?: string;
 }
 
 type DoorSelectionData = {
@@ -83,6 +88,23 @@ const OPENING_ATTACH_DISTANCE = 80;
 
 /** Returns the canvas stroke-width used to draw a wall (mirrors renderWall). */
 const wallStrokeWidth = (wall: Wall) => Math.max(8, wall.thickness / 50);
+
+const getRoomCb05 = (room: Room): Record<string, unknown> => {
+  const cb05 = room.metadata?.cb05;
+  return cb05 && typeof cb05 === "object" && !Array.isArray(cb05)
+    ? (cb05 as Record<string, unknown>)
+    : {};
+};
+
+const isPoint2DLike = (value: unknown): value is Point2D =>
+  Boolean(
+    value &&
+      typeof value === "object" &&
+      "x" in value &&
+      "y" in value &&
+      typeof (value as { x: unknown }).x === "number" &&
+      typeof (value as { y: unknown }).y === "number",
+  );
 
 const snapToGrid = (p: Point2D): Point2D => ({
   x: Math.round(p.x / GRID_SIZE) * GRID_SIZE,
@@ -457,6 +479,9 @@ export default function CADEditor({
   levels: propLevels = [],
   activeLevelId: propActiveLevelId = null,
   onActiveLevelChange,
+  roomIssues = [],
+  onDetectRooms,
+  roomDetectionStatus,
 }: CADEditorProps) {
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -828,6 +853,11 @@ export default function CADEditor({
       .map((id) => elements.find((element) => element.id === id))
       .filter((element): element is Element => Boolean(element))
       .map((element) => getCircuitId(element))
+      .filter((value): value is string => Boolean(value)),
+  );
+  const roomIssueIds = new Set(
+    roomIssues
+      .map((issue) => issue.room_id || issue.element_id)
       .filter((value): value is string => Boolean(value)),
   );
 
@@ -1588,20 +1618,25 @@ export default function CADEditor({
     const areaLabel = `${(room.properties.area || 0).toFixed(2)} m²`;
     const dimensionLabel = `${formatImperial(widthMm)} x ${formatImperial(heightMm)}`;
     const isSelected = selectedIds.includes(room.id);
+    const hasIssue = roomIssueIds.has(room.id);
+    const cb05 = getRoomCb05(room);
+    const isGenerated = cb05.generated === true;
+    const centroidValue = cb05.centroid;
+    const centroid = isPoint2DLike(centroidValue) ? centroidValue : {
+      x: room.vertices.reduce((sum, vertex) => sum + vertex.x, 0) / Math.max(room.vertices.length, 1),
+      y: room.vertices.reduce((sum, vertex) => sum + vertex.y, 0) / Math.max(room.vertices.length, 1),
+    };
+    const points = room.vertices.flatMap((vertex) => [vertex.x, vertex.y]);
 
     return (
       <Group
         key={room.id}
-        x={minX}
-        y={minY}
         draggable={!isPreview && activeTool === "select"}
         onClick={() => !isPreview && setSelectedIds([room.id])}
         onDragEnd={(e) => {
           if (isPreview) return;
-          const nextX = e.target.x();
-          const nextY = e.target.y();
-          const dx = nextX - minX;
-          const dy = nextY - minY;
+          const dx = e.target.x();
+          const dy = e.target.y();
           setElements((prev) =>
             prev.map((el) => {
               if (el.id !== room.id || el.type !== "room") return el;
@@ -1618,24 +1653,39 @@ export default function CADEditor({
           e.target.position({ x: 0, y: 0 });
         }}
       >
-        <Rect
-          x={0}
-          y={0}
-          width={width}
-          height={height}
-          fill={isSelected ? "rgba(59,130,246,0.12)" : "rgba(148,163,184,0.08)"}
-          stroke={isSelected ? "#2563eb" : "#64748b"}
-          strokeWidth={2}
+        <Line
+          points={points}
+          closed
+          fill={
+            hasIssue
+              ? "rgba(239,68,68,0.12)"
+              : isSelected
+                ? "rgba(59,130,246,0.14)"
+                : isGenerated
+                  ? "rgba(20,184,166,0.10)"
+                  : "rgba(148,163,184,0.08)"
+          }
+          stroke={hasIssue ? "#ef4444" : isSelected ? "#2563eb" : isGenerated ? "#0f766e" : "#64748b"}
+          strokeWidth={hasIssue || isSelected ? 3 : 2}
           dash={isPreview ? [6, 4] : []}
         />
+        {hasIssue && (
+          <Circle
+            x={centroid.x}
+            y={centroid.y}
+            radius={8}
+            fill="#ef4444"
+            opacity={0.82}
+          />
+        )}
         <KonvaText
-          x={8}
-          y={8}
-          text={`${room.name} | ${
+          x={centroid.x + 8}
+          y={centroid.y - 12}
+          text={`${room.roomNumber ? `${room.roomNumber} ` : ""}${room.name} | ${
             roomLabelMode === "area" ? areaLabel : dimensionLabel
           }`}
           fontSize={11}
-          fill="#334155"
+          fill={hasIssue ? "#991b1b" : "#334155"}
         />
       </Group>
     );
@@ -3184,6 +3234,24 @@ export default function CADEditor({
             {roomLabelMode === "area" ? "Area" : "Dimensions"}
           </button>
         </div>
+        {onDetectRooms && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onDetectRooms}
+              className="inline-flex items-center gap-1 rounded border border-teal-300 bg-white px-2 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+              title="Detect rooms"
+            >
+              <ScanSearch className="h-3.5 w-3.5" />
+              Detect
+            </button>
+            {roomDetectionStatus && (
+              <span className="text-[11px] font-medium text-gray-600">
+                {roomDetectionStatus}
+              </span>
+            )}
+          </div>
+        )}
 
         {(() => {
           const selectedWall = elements.find(
@@ -3667,6 +3735,12 @@ export default function CADEditor({
         </span>
         <span>
           Windows: {elements.filter((e) => e.type === "window").length} |{" "}
+        </span>
+        <span>
+          Rooms: {elements.filter((e) => e.type === "room").length} |{" "}
+        </span>
+        <span>
+          Room Issues: {roomIssues.length} |{" "}
         </span>
         <span>
           Furniture:{" "}

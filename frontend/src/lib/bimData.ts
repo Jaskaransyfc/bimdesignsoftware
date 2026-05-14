@@ -432,9 +432,30 @@ export const getBimParameterEnvelope = (
     instanceParameters.rotation = Number(source.rotation ?? 0);
   }
   if (source.type === "room") {
-    const roomProperties = source.properties as { area?: number } | undefined;
+    const roomProperties = source.properties as {
+      area?: number;
+      volume?: number;
+      grossArea?: number;
+      netUsableArea?: number;
+      carpetArea?: number;
+      builtUpArea?: number;
+      perimeter?: number;
+    } | undefined;
     instanceParameters.height = lengthToInternalMeters(Number(source.height ?? 3000));
     instanceParameters.area = roomProperties?.area ?? null;
+    instanceParameters.volume = roomProperties?.volume ?? null;
+    instanceParameters.gross_area = roomProperties?.grossArea ?? null;
+    instanceParameters.net_usable_area = roomProperties?.netUsableArea ?? null;
+    instanceParameters.carpet_area = roomProperties?.carpetArea ?? null;
+    instanceParameters.built_up_area = roomProperties?.builtUpArea ?? null;
+    instanceParameters.perimeter = roomProperties?.perimeter ?? null;
+    const cb05Metadata =
+      source.metadata?.cb05 && typeof source.metadata.cb05 === "object" && !Array.isArray(source.metadata.cb05)
+        ? (source.metadata.cb05 as Record<string, unknown>)
+        : {};
+    instanceParameters.room_number = toBimParameterValue(source.roomNumber ?? null);
+    instanceParameters.area_scheme = toBimParameterValue(cb05Metadata.area_scheme ?? null);
+    typeParameters.room_type = toBimParameterValue(source.roomType ?? "Space");
   }
 
   instanceParameters.level_id = source.levelId || null;

@@ -157,20 +157,75 @@ export interface Room {
   id: string;
   type: "room";
   name: string;
+  roomNumber?: string;
+  roomType?: string;
   vertices: Point2D[]; // Polygon vertices
   height: number;
   levelId?: string;
   floorMaterial?: string;
   ceilingMaterial?: string;
   properties: RoomProperties;
+  metadata?: Record<string, unknown>;
+  relationships?: Record<string, unknown>;
 }
 
 export interface RoomProperties {
-  area: number; // m²
+  area: number;
+  grossArea?: number;
+  netUsableArea?: number;
+  carpetArea?: number;
+  builtUpArea?: number;
   perimeter: number; // m
-  volume: number; // m³
+  volume: number;
+  heightM?: number;
+  schemeAreas?: Record<string, number>;
+  averageWallThicknessM?: number;
   fireRating?: string;
   acousticRating?: string;
+}
+
+export interface AreaScheme {
+  code: string;
+  name: string;
+  boundary_rule: string;
+  description: string;
+  offset_m?: number;
+  multiplier?: number;
+  standard?: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface RoomValidationIssue {
+  code: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  room_id?: string | null;
+  element_id?: string | null;
+  level_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface RoomIntelligenceSummary {
+  detected_rooms: number;
+  boundary_segments: number;
+  openings: number;
+  columns: number;
+  slabs: number;
+  ceilings: number;
+  levels: number;
+  total_area_m2: number;
+  total_volume_m3: number;
+}
+
+export interface RoomIntelligenceResult {
+  schema_version: "CB-05";
+  project_id: string;
+  area_scheme: AreaScheme;
+  rooms: Room[];
+  issues: RoomValidationIssue[];
+  summary: RoomIntelligenceSummary;
+  persisted?: boolean;
+  saved_element_count?: number;
 }
 
 export interface Dimension {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, use, useEffect, useCallback } from "react";
+import React, { useState, use, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -31,7 +31,10 @@ import {
   Wall,
   Stair,
   Floor,
+  Room,
   Level,
+  AreaScheme,
+  RoomIntelligenceResult,
 } from "@/types/modeling";
 import {
   generateProjectBOM,
@@ -54,6 +57,12 @@ import {
   type BIMParameterValue,
   type BIMParameterScope,
 } from "@/lib/bimData";
+import {
+  fetchAreaSchemes,
+  mergeGeneratedRooms,
+  recalculateRooms,
+  stripGeneratedRooms,
+} from "@/lib/roomIntelligence";
 
 interface ModelingProps {
   params: Promise<{
@@ -195,6 +204,14 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
   const [isAddingLevel, setIsAddingLevel] = useState(false);
   const [displayLengthUnit, setDisplayLengthUnit] = useState<"mm" | "cm" | "m" | "ft" | "in">("mm");
+  const [areaSchemes, setAreaSchemes] = useState<AreaScheme[]>([]);
+  const [selectedAreaScheme, setSelectedAreaScheme] = useState("usable_area");
+  const [roomIntelligence, setRoomIntelligence] = useState<RoomIntelligenceResult | null>(null);
+  const [isRoomDetectionRunning, setIsRoomDetectionRunning] = useState(false);
+  const [roomDetectionStatus, setRoomDetectionStatus] = useState("");
+  const roomDetectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRoomSourceSignatureRef = useRef("");
+  const roomRequestIdRef = useRef(0);
 
   const handleEditorElementsChange = useCallback((nextElements: Element[]) => {
     const normalizedElements = normalizeBimElements(nextElements);
@@ -340,6 +357,22 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
   }, [projectId]);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadAreaSchemes = async () => {
+      const schemes = await fetchAreaSchemes(projectId);
+      if (cancelled) return;
+      setAreaSchemes(schemes);
+      if (schemes.length && !schemes.some((scheme) => scheme.code === selectedAreaScheme)) {
+        setSelectedAreaScheme(schemes[0].code);
+      }
+    };
+    loadAreaSchemes();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, selectedAreaScheme]);
+
+  useEffect(() => {
     if (!activeLevelId) return;
     localStorage.setItem(`bim_active_level_${projectId}`, activeLevelId);
   }, [projectId, activeLevelId]);
@@ -386,18 +419,99 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
     }
   };
 
+  const runRoomDetection = useCallback(
+    async (sourceOverride?: Element[]) => {
+      const requestId = roomRequestIdRef.current + 1;
+      roomRequestIdRef.current = requestId;
+      const sourceElements = stripGeneratedRooms(sourceOverride || elements);
+      setIsRoomDetectionRunning(true);
+      setRoomDetectionStatus("Updating rooms...");
+      try {
+        const result = await recalculateRooms(projectId, {
+          elements: sourceElements,
+          area_scheme: selectedAreaScheme,
+          persist: false,
+        });
+        if (roomRequestIdRef.current !== requestId) return result;
+        setRoomIntelligence(result);
+        setElements((current) => {
+          const merged = mergeGeneratedRooms(current, result.rooms);
+          return serializeElementsState(current) === serializeElementsState(merged)
+            ? current
+            : normalizeBimElements(merged);
+        });
+        setRoomDetectionStatus(
+          `${result.summary.detected_rooms} rooms / ${result.issues.length} issues`,
+        );
+        return result;
+      } catch (error) {
+        console.error("Room detection failed", error);
+        setRoomDetectionStatus("Room detection failed");
+        return null;
+      } finally {
+        if (roomRequestIdRef.current === requestId) {
+          setIsRoomDetectionRunning(false);
+        }
+      }
+    },
+    [elements, projectId, selectedAreaScheme],
+  );
+
+  useEffect(() => {
+    if (!mounted || isLoading) return;
+    const sourceElements = stripGeneratedRooms(elements);
+    const hasRoomBoundaries = sourceElements.some((element) =>
+      ["wall", "polyline", "line", "room_separator", "area_boundary"].includes(
+        String(element.type),
+      ),
+    );
+    if (!hasRoomBoundaries) return;
+    const signature = `${selectedAreaScheme}:${serializeElementsState(sourceElements)}`;
+    if (signature === lastRoomSourceSignatureRef.current) return;
+    lastRoomSourceSignatureRef.current = signature;
+    if (roomDetectionTimerRef.current) {
+      clearTimeout(roomDetectionTimerRef.current);
+    }
+    roomDetectionTimerRef.current = setTimeout(() => {
+      runRoomDetection(sourceElements);
+    }, 700);
+    return () => {
+      if (roomDetectionTimerRef.current) {
+        clearTimeout(roomDetectionTimerRef.current);
+      }
+    };
+  }, [elements, isLoading, mounted, runRoomDetection, selectedAreaScheme]);
+
   const handleSaveDrawing = async (updatedElements: Element[]) => {
     const normalizedElements = updatedElements.map((element) => withBimMetadata(element));
-    setElements(normalizedElements);
+    const sourceElements = stripGeneratedRooms(normalizedElements);
     setIsSaving(true);
 
     try {
+      const roomResult = await recalculateRooms(projectId, {
+        elements: sourceElements,
+        area_scheme: selectedAreaScheme,
+        persist: false,
+      }).catch((error) => {
+        console.error("Room recalculation before save failed", error);
+        return null;
+      });
+      const elementsToSave = roomResult
+        ? mergeGeneratedRooms(sourceElements, roomResult.rooms)
+        : normalizedElements;
+      setElements(normalizeBimElements(elementsToSave));
+      if (roomResult) {
+        setRoomIntelligence(roomResult);
+        setRoomDetectionStatus(
+          `${roomResult.summary.detected_rooms} rooms / ${roomResult.issues.length} issues`,
+        );
+      }
       const response = await fetch(`/api/projects/${projectId}/drawing`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId,
-          elements: normalizedElements,
+          elements: elementsToSave,
           timestamp: new Date().toISOString(),
         }),
       });
@@ -441,7 +555,18 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
 
   const stats = calculateDrawingStats(elements);
   const bom = generateProjectBOM(elements);
-  const validationIssues = validateBimElements(elements as Array<Element & Record<string, unknown>>);
+  const bimValidationIssues = validateBimElements(elements as Array<Element & Record<string, unknown>>);
+  const roomIssues = roomIntelligence?.issues || [];
+  const validationIssues = [
+    ...bimValidationIssues,
+    ...roomIssues.map((issue) => ({
+      code: issue.code,
+      severity: issue.severity,
+      message: issue.message,
+      element_id: issue.element_id || issue.room_id || null,
+      path: "metadata.cb05",
+    })),
+  ];
   const selectedBimEnvelope = selectedElement
     ? getBimParameterEnvelope(selectedElement as Element & Record<string, unknown>)
     : null;
@@ -533,6 +658,30 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
               </option>
             ))}
           </select>
+          <select
+            value={selectedAreaScheme}
+            onChange={(event) => setSelectedAreaScheme(event.target.value)}
+            className="px-3 py-2 rounded-lg bg-slate-800 text-slate-100 border border-slate-700 text-sm"
+            title="Area scheme"
+          >
+            {areaSchemes.length === 0 && (
+              <option value={selectedAreaScheme}>Area: Usable</option>
+            )}
+            {areaSchemes.map((scheme) => (
+              <option key={scheme.code} value={scheme.code}>
+                Area: {scheme.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => runRoomDetection()}
+            disabled={isRoomDetectionRunning}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-700 hover:bg-teal-600 text-white border border-teal-500 transition disabled:opacity-50"
+          >
+            <Layers className="w-4 h-4" />
+            {isRoomDetectionRunning ? "Rooms..." : "Rooms"}
+          </button>
           <button
             type="button"
             onClick={handleAddLevel}
@@ -602,6 +751,9 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
               levels={levels}
               activeLevelId={activeLevelId}
               onActiveLevelChange={setActiveLevelId}
+              roomIssues={roomIssues}
+              onDetectRooms={() => runRoomDetection()}
+              roomDetectionStatus={roomDetectionStatus}
             />
           ) : (
             <Model3DPreview
@@ -800,6 +952,74 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                     )}
 
                     {/* ── DOOR PROPERTIES ── */}
+                    {selectedElement.type === "room" && (() => {
+                      const room = selectedElement as Room;
+                      const schemeAreas = room.properties?.schemeAreas || {};
+                      return (
+                        <>
+                          <div className="space-y-1.5 pb-3 border-b border-slate-800">
+                            <label className="text-xs text-slate-400 font-medium">Name</label>
+                            <input
+                              type="text"
+                              value={room.name}
+                              onChange={(event) => handlePropertyUpdate("name", event.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 pb-3 border-b border-slate-800">
+                            <div>
+                              <label className="text-xs text-slate-400 font-medium">Number</label>
+                              <input
+                                type="text"
+                                value={room.roomNumber || ""}
+                                onChange={(event) => handlePropertyUpdate("roomNumber", event.target.value)}
+                                className="mt-1 w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-400 font-medium">Type</label>
+                              <input
+                                type="text"
+                                value={room.roomType || ""}
+                                onChange={(event) => handlePropertyUpdate("roomType", event.target.value)}
+                                className="mt-1 w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            {[
+                              ["Area", `${room.properties.area?.toFixed?.(2) ?? 0} m²`],
+                              ["Gross", `${room.properties.grossArea?.toFixed?.(2) ?? "-"} m²`],
+                              ["Usable", `${room.properties.netUsableArea?.toFixed?.(2) ?? "-"} m²`],
+                              ["Volume", `${room.properties.volume?.toFixed?.(2) ?? 0} m³`],
+                            ].map(([label, value]) => (
+                              <div key={label} className="rounded bg-slate-950 border border-slate-800 p-2">
+                                <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">
+                                  {label}
+                                </div>
+                                <div className="font-mono text-slate-200">{value}</div>
+                              </div>
+                            ))}
+                          </div>
+                          {Object.keys(schemeAreas).length > 0 && (
+                            <div className="rounded bg-slate-950 border border-slate-800 p-2 text-xs">
+                              <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-1">
+                                Scheme Areas
+                              </div>
+                              <div className="space-y-1">
+                                {Object.entries(schemeAreas).map(([key, value]) => (
+                                  <div key={key} className="flex justify-between gap-2">
+                                    <span className="text-slate-500">{key.replaceAll("_", " ")}</span>
+                                    <span className="font-mono text-slate-200">{Number(value).toFixed(2)} m²</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+
                     {selectedElement.type === "door" && (() => {
                       const door = selectedElement as Door;
                       return (
@@ -1676,6 +1896,41 @@ export default function ModelingWorkspace({ params }: ModelingProps) {
                           </div>
                           <div className="text-xs text-slate-500">Windows</div>
                         </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mb-8 bg-slate-900 rounded-lg p-4 border border-slate-700">
+                    <h3 className="font-bold text-white mb-4 flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-teal-400" /> Room Intelligence
+                    </h3>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Scheme:</span>
+                        <strong className="text-white bg-slate-800 px-3 py-1 rounded">
+                          {roomIntelligence?.area_scheme?.name || "Usable Area"}
+                        </strong>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Detected:</span>
+                        <strong className="text-white bg-slate-800 px-3 py-1 rounded">
+                          {roomIntelligence?.summary.detected_rooms ?? stats.roomCount}
+                        </strong>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Area:</span>
+                        <strong className="text-white bg-slate-800 px-3 py-1 rounded">
+                          {(roomIntelligence?.summary.total_area_m2 ?? stats.totalFloorArea).toFixed(2)} m²
+                        </strong>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Volume:</span>
+                        <strong className="text-white bg-slate-800 px-3 py-1 rounded">
+                          {(roomIntelligence?.summary.total_volume_m3 ?? stats.estimatedVolume).toFixed(2)} m³
+                        </strong>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {roomDetectionStatus || "Ready"}
                       </div>
                     </div>
                   </div>

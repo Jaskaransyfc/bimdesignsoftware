@@ -114,6 +114,7 @@ import {
   Polyline,
   Window,
   Wall,
+  Room,
   Railing,
   Roof,
 } from "@/types/modeling";
@@ -131,6 +132,23 @@ const PLAN_SCALE = 10;
 const MM_SCALE = 500; // 1000mm = 2 units (consistent with 1px = 50mm and PLAN_SCALE = 10)
 const MM_TO_CANVAS = 50; // 1 pixel = 50mm
 const METERS_TO_WORLD = 2; // 1 meter = 2 units (since 1m = 20px and 10px = 1 unit)
+
+const getRoomCb05 = (room: Room): Record<string, unknown> => {
+  const cb05 = room.metadata?.cb05;
+  return cb05 && typeof cb05 === "object" && !Array.isArray(cb05)
+    ? (cb05 as Record<string, unknown>)
+    : {};
+};
+
+const isCanvasPoint = (value: unknown): value is { x: number; y: number } =>
+  Boolean(
+    value &&
+      typeof value === "object" &&
+      "x" in value &&
+      "y" in value &&
+      typeof (value as { x: unknown }).x === "number" &&
+      typeof (value as { y: unknown }).y === "number",
+  );
 
 export default function Model3DPreview({
   elements,
@@ -1085,6 +1103,91 @@ export default function Model3DPreview({
       getLevelGroup((wall as any).levelId).add(endFiller);
       });
     });
+
+    filteredElements
+      .filter((el): el is Room => el.type === "room")
+      .forEach((room) => {
+        renderOnLevel(room.levelId, () => {
+          if (!room.vertices || room.vertices.length < 3) return;
+          const cb05 = getRoomCb05(room);
+          const shape = new THREE.Shape();
+          room.vertices.forEach((vertex, index) => {
+            const x = vertex.x / PLAN_SCALE;
+            const y = -vertex.y / PLAN_SCALE;
+            if (index === 0) shape.moveTo(x, y);
+            else shape.lineTo(x, y);
+          });
+          shape.closePath();
+
+          const hasIssue = cb05.validation_status === "error";
+          const isSelected = selectedElementId === room.id;
+          const roomHeight = Math.max((room.height || 3000) / MM_SCALE, 0.2);
+          const volumeGeometry = new THREE.ExtrudeGeometry(shape, {
+            depth: roomHeight,
+            bevelEnabled: false,
+          });
+          volumeGeometry.rotateX(-Math.PI / 2);
+          const volumeMaterial = new THREE.MeshBasicMaterial({
+            color: hasIssue ? "#ef4444" : isSelected ? "#60a5fa" : "#14b8a6",
+            transparent: true,
+            opacity: hasIssue ? 0.16 : 0.1,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+          const volume = new THREE.Mesh(volumeGeometry, volumeMaterial);
+          volume.renderOrder = 1;
+          scene.add(volume);
+
+          const outlinePoints = room.vertices.map(
+            (vertex) =>
+              new THREE.Vector3(
+                vertex.x / PLAN_SCALE,
+                0.05,
+                vertex.y / PLAN_SCALE,
+              ),
+          );
+          if (outlinePoints.length) outlinePoints.push(outlinePoints[0].clone());
+          const outline = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(outlinePoints),
+            new THREE.LineBasicMaterial({
+              color: hasIssue ? "#ef4444" : isSelected ? "#2563eb" : "#0f766e",
+              linewidth: 2,
+            }),
+          );
+          scene.add(outline);
+
+          const centroidValue = cb05.centroid;
+          const centroid = isCanvasPoint(centroidValue) ? centroidValue : {
+            x: room.vertices.reduce((sum, vertex) => sum + vertex.x, 0) / room.vertices.length,
+            y: room.vertices.reduce((sum, vertex) => sum + vertex.y, 0) / room.vertices.length,
+          };
+          const canvas = document.createElement("canvas");
+          canvas.width = 256;
+          canvas.height = 96;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.fillStyle = "rgba(15, 23, 42, 0.82)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#f8fafc";
+            ctx.font = "bold 22px sans-serif";
+            ctx.fillText(`${room.roomNumber || ""} ${room.name}`.trim(), 12, 34);
+            ctx.fillStyle = "#99f6e4";
+            ctx.font = "18px sans-serif";
+            ctx.fillText(`${(room.properties.area || 0).toFixed(2)} m²`, 12, 66);
+            const texture = new THREE.CanvasTexture(canvas);
+            const sprite = new THREE.Sprite(
+              new THREE.SpriteMaterial({ map: texture, transparent: true }),
+            );
+            sprite.scale.set(2.6, 1.0, 1);
+            sprite.position.set(
+              centroid.x / PLAN_SCALE,
+              Math.min(roomHeight + 0.2, 1.8),
+              centroid.y / PLAN_SCALE,
+            );
+            scene.add(sprite);
+          }
+        });
+      });
 
     if (showDebugGuides) {
       const wallAxisMaterial = new THREE.LineBasicMaterial({
